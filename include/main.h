@@ -24,6 +24,7 @@
  * E_CONTROLLER_MASTER is pedantically correct within the PROS styleguide, but
  * not convenient for most student programmers.
  */
+#include "pros/imu.hpp"
 #define PROS_USE_SIMPLE_NAMES
 
 /**
@@ -40,6 +41,8 @@
  * You should add more #includes here
  */
 //#include "okapi/api.hpp"
+// #include "lemlib/chassis/chassis.hpp"
+#include "drive.hpp"
 
 /**
  * If you find doing pros::Motor() to be tedious and you'd prefer just to do

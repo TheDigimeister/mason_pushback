@@ -1,4 +1,24 @@
 #include "main.h"
+#include "lemlib/api.hpp"
+
+pros::Controller master(pros::E_CONTROLLER_MASTER);
+// pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
+// pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
+
+
+pros::Motor lower(7);
+pros::Motor upper(10);
+
+pros::ADIDigitalOut level('A');
+pros::ADIDigitalOut matchload('C');
+pros::ADIDigitalOut descore('B');
+pros::ADIDigitalOut odom('D');
+
+bool descore_state = false;
+bool level_state = false;
+bool odom_state = false;
+bool matchload_state = false;
+bool auton_num = 1;
 
 /**
  * A callback function for LLEMU's center button.
@@ -58,7 +78,54 @@ void competition_initialize() {}
  * will be stopped. Re-enabling the robot will restart the task, not re-start it
  * from where it left off.
  */
-void autonomous() {}
+void autonomous() {
+
+	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+	right_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+
+	if (auton_num == 0) {
+
+		odom.set_value(true);
+		chassis.calibrate();
+		chassis.setPose(0,0,0);
+
+		chassis.moveToPoint(0,24,10000);
+		chassis.moveToPoint(0, 0, 10000, {.forwards=false});
+
+		chassis.moveToPoint(0,24,10000);
+		chassis.moveToPoint(0, 0, 10000, {.forwards=false});
+
+		chassis.turnToHeading(180, 10000);
+		chassis.turnToHeading(0,10000);
+
+		chassis.turnToHeading(180, 10000);
+		chassis.turnToHeading(0,10000);
+
+		chassis.turnToHeading(180, 10000);
+		chassis.turnToHeading(0,10000);
+
+		chassis.turnToHeading(180, 10000);
+		chassis.turnToHeading(0,10000);
+
+	}
+
+	else if (auton_num == 1) {
+		// Path
+
+		odom.set_value(true);
+		chassis.calibrate();
+		chassis.setPose(-46.847,17.187,80);
+
+		// Path
+
+		lower.move(127);
+
+		chassis.moveToPoint(-23.635, 23.635, 5000, {.maxSpeed=50});
+		chassis.moveToPoint(-0.939, 46.331, 5000, {.maxSpeed=50});
+
+	}
+
+}
 
 /**
  * Runs the operator control code. This function will be started in its own task
@@ -74,29 +141,10 @@ void autonomous() {}
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
-	pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
-
-	pros::Motor lower(7);
-	pros::Motor upper(10);
-
-	pros::ADIDigitalOut level('A');
-	pros::ADIDigitalOut matchload('C');
-	pros::ADIDigitalOut descore('B');
-	pros::ADIDigitalOut odom('D');
-
-
-	bool descore_state = false;
-	bool level_state = false;
-	bool odom_state = false;
-	bool matchload_state = false;
-
-
-
 
 	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 	right_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+
 
 	while (true) {
 		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
@@ -104,8 +152,8 @@ void opcontrol() {
 		                 (pros::lcd::read_buttons() & LCD_BTN_RIGHT) >> 0);  // Prints status of the emulated screen LCDs
 
 		// Arcade control scheme
-		int dir = master.get_analog(ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
-		int turn = master.get_analog(ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
+		int dir = master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
+		int turn = master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
 		
 		if (abs(dir) + abs(turn) > 5) {
 			left_mg.move(dir + turn);                      // Sets left motor voltage
