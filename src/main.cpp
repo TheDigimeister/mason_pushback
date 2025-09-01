@@ -75,9 +75,28 @@ void autonomous() {}
  */
 void opcontrol() {
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({1, -2, 3});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
-	pros::MotorGroup right_mg({-4, 5, -6});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
+	pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
+	pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
 
+	pros::Motor lower(7);
+	pros::Motor upper(10);
+
+	pros::ADIDigitalOut level('A');
+	pros::ADIDigitalOut matchload('C');
+	pros::ADIDigitalOut descore('B');
+	pros::ADIDigitalOut odom('D');
+
+
+	bool descore_state = false;
+	bool level_state = false;
+	bool odom_state = false;
+	bool matchload_state = false;
+
+
+
+
+	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+	right_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 
 	while (true) {
 		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
@@ -87,8 +106,80 @@ void opcontrol() {
 		// Arcade control scheme
 		int dir = master.get_analog(ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
 		int turn = master.get_analog(ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
-		left_mg.move(dir - turn);                      // Sets left motor voltage
-		right_mg.move(dir + turn);                     // Sets right motor voltage
+		
+		if (abs(dir) + abs(turn) > 5) {
+			left_mg.move(dir + turn);                      // Sets left motor voltage
+			right_mg.move(dir - turn);                     // Sets right motor voltage
+		}
+		else {
+			left_mg.brake();
+			right_mg.brake();
+		}
+
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
+			lower.move(127);
+		}
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) {
+			lower.move(-127);
+			upper.move(-127);
+		}
+
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_L1)) {
+			lower.move(127);
+			upper.move(127);
+		}
+
+		else {
+			lower.move(0);
+			upper.move(0);
+		}
+
+
+		// Pneumatics
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_X) && odom_state == false) {
+			odom.set_value(true);
+			odom_state = true;
+			pros::delay(150);
+		}
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_X) && odom_state == true) {
+			odom.set_value(false);
+			odom_state = false;
+			pros::delay(150);
+		}
+
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_DOWN) && level_state == false) {
+			level.set_value(true);
+			level_state = true;
+			pros::delay(150);
+
+		}
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_DOWN) && level_state == true){
+			level.set_value(false);
+			level_state = false;
+			pros::delay(150);
+		}
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT) && matchload_state == false) {
+			matchload.set_value(true);
+			matchload_state = true;
+			pros::delay(150);
+		}
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT) && matchload_state == true){
+			matchload.set_value(false);
+			matchload_state = false;
+			pros::delay(150);
+		}
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_Y) && descore_state == false) {
+			descore.set_value(true);
+			descore_state = true;
+			pros::delay(150);
+		}
+		
+		else if (master.get_digital(pros::E_CONTROLLER_DIGITAL_Y) && descore_state == true){
+			descore.set_value(false);
+			descore_state = false;
+			pros::delay(150);
+		}
+
 		pros::delay(20);                               // Run for 20 ms then update
 	}
 }
