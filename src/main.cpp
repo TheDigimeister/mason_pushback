@@ -1,5 +1,8 @@
 #include "main.h"
+#include "drive.hpp"
 #include "lemlib/api.hpp"
+#include "pros/distance.hpp"
+#include "pros/rtos.hpp"
 
 pros::Controller master(pros::E_CONTROLLER_MASTER);
 // pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
@@ -14,11 +17,13 @@ pros::ADIDigitalOut matchload('C');
 pros::ADIDigitalOut descore('B');
 pros::ADIDigitalOut odom('D');
 
+pros::Distance back_dist(18);
+
 bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-bool auton_num = 1;
+int auton_num = 4;
 
 /**
  * A callback function for LLEMU's center button.
@@ -47,6 +52,8 @@ void initialize() {
 	pros::lcd::set_text(1, "Hello PROS User!");
 
 	pros::lcd::register_btn1_cb(on_center_button);
+	chassis.calibrate();
+
 }
 
 /**
@@ -110,19 +117,269 @@ void autonomous() {
 	}
 
 	else if (auton_num == 1) {
-		// Path
-
 		odom.set_value(true);
-		chassis.calibrate();
-		chassis.setPose(-46.847,17.187,80);
+		chassis.setPose(-46.847,-14.278,90);
 
 		// Path
 
 		lower.move(127);
 
-		chassis.moveToPoint(-23.635, 23.635, 5000, {.maxSpeed=50});
-		chassis.moveToPoint(-0.939, 46.331, 5000, {.maxSpeed=50});
+		// pick up trio
+		chassis.moveToPose(-22.603, -24,135, 2000, {.maxSpeed=127}, false);
+		// chassis.waitUntil(float dist)
+		// matchload.set_value(true);
 
+
+		// pick up long goal balls
+		chassis.moveToPoint(-10, -40.327, 2000, {.maxSpeed=80});
+		chassis.waitUntil(5);
+		matchload.set_value(false);
+		chassis.waitUntil(20);
+		matchload.set_value(true);
+		pros::delay(200);
+
+		// // score low goal
+		chassis.moveToPoint(-22.345, -23.821, 2000, {.forwards=false, .maxSpeed=127});
+		chassis.waitUntil(20);
+		matchload.set_value(false);
+		lower.move(0);
+		// chassis.turnToPoint(-8.676, -13.504, 5000, {}, false);
+		// chassis.moveToPoint(-8.676, -13.504, 5000, {.forwards=true, .maxSpeed=50}, false);
+		// chassis.turnToHeading(45, 5000, {}, false);
+		// lower.move(-127);
+		// pros::delay(2000);
+		level.set_value(false);
+
+		// score into long goal
+		chassis.turnToPoint(-40, -51, 2000);
+		lower.move(127);
+		chassis.moveToPoint(-40, -51, 2000, {.forwards=true, .maxSpeed=127}, false);
+		chassis.turnToHeading(-90, 2000, {}, false);
+		chassis.moveToPoint(-21, -51, 2000, {.forwards=false, .maxSpeed=80});
+		
+		pros::Task align_score1{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+
+		// upper.move(127);
+		matchload.set_value(true);
+		pros::delay(3000);
+		upper.move(0);
+
+		// get matchload then score into long goal
+		chassis.moveToPoint(-58, -51, 2000, {.forwards=true, .maxSpeed=70});
+		chassis.moveToPoint(-63.869, -51, 2000, {.forwards=true, .maxSpeed=40});
+		chassis.moveToPoint(-21, -51, 2000, {.forwards=false, .maxSpeed=80});
+		pros::Task align_score2{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+		// upper.move(127);
+		odom.set_value(false);
+		pros::delay(3000);
+
+	}
+
+	else if (auton_num == 2){
+		odom.set_value(true);
+		chassis.setPose(-46.847,14.278,90);
+
+		// Path
+
+		lower.move(127);
+
+		// pick up trio
+		chassis.moveToPose(-22.603, 24,45, 2000, {.maxSpeed=127}, false);
+		// chassis.waitUntil(float dist)
+		// matchload.set_value(true);
+
+
+		// pick up long goal balls
+		chassis.moveToPoint(-10, 40.327, 2000, {.maxSpeed=80});
+		chassis.waitUntil(5);
+		matchload.set_value(false);
+		chassis.waitUntil(20);
+		matchload.set_value(true);
+		pros::delay(200);
+
+		// // score low goal
+		chassis.moveToPoint(-22.345, 23.821, 2000, {.forwards=false, .maxSpeed=127});
+		chassis.waitUntil(20);
+		matchload.set_value(false);
+		lower.move(0);
+		// chassis.turnToPoint(-8.676, -13.504, 5000, {}, false);
+		// chassis.moveToPoint(-8.676, -13.504, 5000, {.forwards=true, .maxSpeed=50}, false);
+		// chassis.turnToHeading(45, 5000, {}, false);
+		// lower.move(-127);
+		// pros::delay(2000);
+		level.set_value(false);
+
+		// score into long goal
+		chassis.turnToPoint(-40, 51, 2000);
+		lower.move(127);
+		chassis.moveToPoint(-40, 51, 2000, {.forwards=true, .maxSpeed=127}, false);
+		chassis.turnToHeading(-90, 2000, {}, false);
+		chassis.moveToPoint(-21, 51, 2000, {.forwards=false, .maxSpeed=80});
+		
+		pros::Task align_score1{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+
+		// upper.move(127);
+		matchload.set_value(true);
+		pros::delay(3000);
+		upper.move(0);
+
+		// get matchload then score into long goal
+		chassis.moveToPoint(-58, 51, 2000, {.forwards=true, .maxSpeed=70});
+		chassis.moveToPoint(-63.869, 51, 2000, {.forwards=true, .maxSpeed=40});
+		chassis.moveToPoint(-21, 51, 2000, {.forwards=false, .maxSpeed=80});
+		pros::Task align_score2{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+		// upper.move(127);
+		odom.set_value(false);
+		pros::delay(3000);
+
+	}
+
+	else if (auton_num == 3) {
+		odom.set_value(true);
+		chassis.setPose(-46.847,14.278,90);
+
+		// Path
+
+		lower.move(127);
+
+		// pick up trio
+		chassis.moveToPose(-22.603, 24,45, 2000, {.maxSpeed=127}, false);
+		// chassis.waitUntil(float dist)
+		// matchload.set_value(true);
+
+
+		// pick up long goal balls
+		chassis.moveToPoint(-10, 40.327, 2000, {.maxSpeed=80});
+		chassis.waitUntil(5);
+		matchload.set_value(false);
+		chassis.waitUntil(20);
+		matchload.set_value(true);
+		pros::delay(200);
+
+		// // score middle goal
+		chassis.moveToPoint(-22.345, 23.821, 2000, {.forwards=false, .maxSpeed=127});
+		chassis.waitUntil(20);
+		matchload.set_value(false);
+		// lower.move(0);
+		chassis.turnToPoint(-11.513, 11.771, 2000, {.forwards=false}, false);
+		chassis.moveToPoint(-11.513, 11.771, 2000, {.forwards=false, .maxSpeed=50}, false);
+		level.set_value(true);
+		chassis.turnToHeading(-45, 500, {}, false);
+		lower.move(127);
+		upper.move(127);
+		pros::delay(200);
+		upper.move(0);
+		chassis.waitUntil(20);
+		level.set_value(false);
+
+		// score into long goal
+		chassis.turnToPoint(-40, 51, 2000);
+		lower.move(127);
+		chassis.moveToPoint(-40, 51, 2000, {.forwards=true, .maxSpeed=127}, false);
+		chassis.turnToHeading(-90, 2000, {}, false);
+		chassis.moveToPoint(-21, 51, 2000, {.forwards=false, .maxSpeed=80});
+		
+		pros::Task align_score1{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+
+		// upper.move(127);
+		matchload.set_value(true);
+		pros::delay(3000);
+		upper.move(0);
+
+		// get matchload then score into long goal
+		chassis.moveToPoint(-58, 51, 2000, {.forwards=true, .maxSpeed=70});
+		chassis.moveToPoint(-63.869, 51, 2000, {.forwards=true, .maxSpeed=40});
+		chassis.moveToPoint(-21, 51, 2000, {.forwards=false, .maxSpeed=80});
+		pros::Task align_score2{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+		// upper.move(127);
+		odom.set_value(false);
+		pros::delay(3000);
+
+	}
+	else if (auton_num == 4) {
+		odom.set_value(true);
+		chassis.setPose(-46.847,-14.278,90);
+
+		// Path
+
+		lower.move(127);
+
+		// pick up trio
+		chassis.moveToPose(-22.603, -24,135, 2000, {.maxSpeed=127}, false);
+		// chassis.waitUntil(float dist)
+		// matchload.set_value(true);
+
+
+		// pick up long goal balls
+		chassis.moveToPoint(-10, -40.327, 2000, {.maxSpeed=80});
+		chassis.waitUntil(5);
+		matchload.set_value(false);
+		chassis.waitUntil(20);
+		matchload.set_value(true);
+		pros::delay(200);
+
+		// // score middle goal
+		chassis.moveToPoint(-22.345, -23.821, 2000, {.forwards=false, .maxSpeed=127});
+		chassis.waitUntil(20);
+		matchload.set_value(false);
+		// lower.move(0);
+		chassis.turnToPoint(-12.029, -11.957, 2000, {.forwards=true}, false);
+		chassis.moveToPoint(-12.029, -11.957, 2000, {.forwards=true, .maxSpeed=50}, false);
+		// level.set_value(true);
+		chassis.turnToHeading(45, 500, {}, false);
+		lower.move(-127);
+		// upper.move(127);
+		pros::delay(1000);
+		upper.move(0);
+		chassis.waitUntil(20);
+		level.set_value(false);
+
+		// score into long goal
+		chassis.turnToPoint(-40, -51, 2000);
+		lower.move(127);
+		chassis.moveToPoint(-40, -51, 2000, {.forwards=true, .maxSpeed=127}, false);
+		chassis.turnToHeading(-90, 2000, {}, false);
+		chassis.moveToPoint(-21, -51, 2000, {.forwards=false, .maxSpeed=80});
+		
+		pros::Task align_score1{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+
+		// upper.move(127);
+		matchload.set_value(true);
+		pros::delay(3000);
+		upper.move(0);
+
+		// get matchload then score into long goal
+		chassis.moveToPoint(-58, -51, 2000, {.forwards=true, .maxSpeed=70});
+		chassis.moveToPoint(-63.869, -51, 2000, {.forwards=true, .maxSpeed=40});
+		chassis.moveToPoint(-21, -51, 2000, {.forwards=false, .maxSpeed=80});
+		pros::Task align_score2{[=]{
+			while(back_dist.get_distance() > 75) { pros::delay(50);}
+			upper.move(127);
+		}};
+		// upper.move(127);
+		odom.set_value(false);
+		pros::delay(3000);
 	}
 
 }
