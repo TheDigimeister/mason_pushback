@@ -1,4 +1,6 @@
 #include "main.h"
+#include "drive.hpp"
+#include "pros/rtos.hpp"
 
 /**
  * A callback function for LLEMU's center button.
@@ -27,6 +29,15 @@ void initialize() {
 	pros::lcd::set_text(1, "Hello PROS User!");
 
 	pros::lcd::register_btn1_cb(on_center_button);
+
+	// Start odometry update loop
+	pros::Task odometry([=](){
+		while (true) {
+			odom_state.odom_update();
+			pros::delay(20);
+		}
+	});
+
 }
 
 /**
@@ -58,7 +69,11 @@ void competition_initialize() {}
  * will be stopped. Re-enabling the robot will restart the task, not re-start it
  * from where it left off.
  */
-void autonomous() {}
+void autonomous() {
+
+	odom_state.odom_init(0, 0, 0);
+
+}
 
 /**
  * Runs the operator control code. This function will be started in its own task
@@ -75,8 +90,6 @@ void autonomous() {}
  */
 void opcontrol() {
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
-	pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
 
 	pros::Motor lower(7);
 	pros::Motor upper(10);
@@ -91,9 +104,6 @@ void opcontrol() {
 	bool level_state = false;
 	bool odom_state = false;
 	bool matchload_state = false;
-
-
-
 
 	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 	right_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
