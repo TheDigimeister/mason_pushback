@@ -42,6 +42,7 @@
 //#include "okapi/api.hpp"
 #include "odom.hpp"
 #include "drive.hpp"
+#include "control.hpp"
 
 /**
  * If you find doing pros::Motor() to be tedious and you'd prefer just to do

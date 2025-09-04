@@ -1,5 +1,4 @@
 #include "main.h"
-#include "drive.hpp"
 #include "pros/rtos.hpp"
 
 /**
@@ -29,14 +28,6 @@ void initialize() {
 	pros::lcd::set_text(1, "Hello PROS User!");
 
 	pros::lcd::register_btn1_cb(on_center_button);
-
-	// Start odometry update loop
-	pros::Task odometry([=](){
-		while (true) {
-			odom_state.odom_update();
-			pros::delay(20);
-		}
-	});
 
 }
 
@@ -71,7 +62,28 @@ void competition_initialize() {}
  */
 void autonomous() {
 
+	// Odometry setup
 	odom_state.odom_init(0, 0, 0);
+
+	pros::Task odometry([=](){
+		while (true) {
+			odom_state.odom_update();
+			pros::delay(20);
+		}
+	});
+
+	// MCL setup
+	mcl.init();
+	pros::Task mcl_task([=]() {
+		while (true) {
+			mcl.predict();
+			mcl.update();
+			mcl.normalize();
+			mcl.resample();
+			mcl.estimate();
+			pros::delay(20);
+		}
+	});
 
 }
 

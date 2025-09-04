@@ -1,3 +1,4 @@
+#include "odom.hpp"
 #include "main.h"
 
 // Constructor with perpendicular encoder
@@ -44,12 +45,12 @@ void OdometryState::odom_update() {
     float local_x = has_perpendicular_encoder ? distance_perp : 0;
     float local_y = (distance_left + distance_right) / 2.0;
 
-    float global_delta_x = 0;
-    float global_delta_y = 0;
+    this->global_delta_x = 0;
+    this->global_delta_y = 0;
 
     if (fabs(delta_theta) < 0.001) {
-        global_delta_x = local_x * cos(this->current_position.theta) - local_y * sin(this->current_position.theta);
-        global_delta_y = local_x * sin(this->current_position.theta) + local_y * cos(this->current_position.theta);
+        this->global_delta_x = local_x * cos(this->current_position.theta) - local_y * sin(this->current_position.theta);
+        this->global_delta_y = local_x * sin(this->current_position.theta) + local_y * cos(this->current_position.theta);
     } else {
         float radius_y = local_y / delta_theta;
         float radius_x = local_x / delta_theta;
@@ -57,17 +58,17 @@ void OdometryState::odom_update() {
         float sin_delta = sin(delta_theta);
         float cos_delta = cos(delta_theta);
 
-        global_delta_x = radius_y * sin_delta + radius_x * (cos_delta - 1);
-        global_delta_y = radius_y * (1 - cos_delta) + radius_x * sin_delta;
+        this->global_delta_x = radius_y * sin_delta + radius_x * (cos_delta - 1);
+        this->global_delta_y = radius_y * (1 - cos_delta) + radius_x * sin_delta;
 
-        float temp_x = global_delta_x;
+        float temp_x = this->global_delta_x;
 
-        global_delta_x = temp_x * cos(this->current_position.theta) - global_delta_y * sin(this->current_position.theta);
-        global_delta_y = temp_x * sin(this->current_position.theta) + global_delta_y * cos(this->current_position.theta);
+        this->global_delta_x = temp_x * cos(this->current_position.theta) - this->global_delta_y * sin(this->current_position.theta);
+        this->global_delta_y = temp_x * sin(this->current_position.theta) + this->global_delta_y * cos(this->current_position.theta);
     }
 
-    this->current_position.x += global_delta_x;
-    this->current_position.y += global_delta_y;
+    this->current_position.x += this->global_delta_x;
+    this->current_position.y += this->global_delta_y;
     this->current_position.theta += delta_theta;
 
     // Normalize angle
@@ -113,6 +114,18 @@ float OdometryState::get_heading() const {
 
 float OdometryState::get_heading_degrees() const {
     return this->current_position.theta * RADIANS_TO_DEGREES;
+}
+
+float OdometryState::get_global_delta_x() const {
+    return this->global_delta_x;
+}
+
+float OdometryState::get_global_delta_y() const {
+    return this->global_delta_y;
+}
+
+float OdometryState::get_global_delta_theta() const {
+    return this->global_delta_theta;
 }
 
 void OdometryState::set_position(float new_x, float new_y, float new_theta) {
