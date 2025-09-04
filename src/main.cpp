@@ -1,8 +1,11 @@
 #include "main.h"
+#include "control.hpp"
 #include "drive.hpp"
 #include "lemlib/api.hpp"
 #include "pros/distance.hpp"
 #include "pros/rtos.hpp"
+#include <cstdio>
+#include <iostream>
 
 pros::Controller master(pros::E_CONTROLLER_MASTER);
 // pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
@@ -54,6 +57,14 @@ void initialize() {
 	pros::lcd::register_btn1_cb(on_center_button);
 	chassis.calibrate();
 
+	initializeMCL();
+
+	pros::Task print_coordinates([=](){
+		while (true) {
+			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
+			std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
+		}
+	});
 }
 
 /**
