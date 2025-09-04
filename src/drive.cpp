@@ -10,9 +10,14 @@ pros::Distance back_dist(12);
 pros::Distance left_dist(13);
 pros::Distance right_dist(14);
 
+pros::Imu imu(15);  // IMU on port 15
+
 
 OdometryState odom_state(Pose {0, 0, 0}, left_mg, right_mg);
 
 MCL mcl(odom_state);
 
-MCLSensors mcl_sensors(front_dist, back_dist, left_dist, right_dist);
+MCLSensors mcl_sensors(front_dist, back_dist, left_dist, right_dist, imu);
+
+PID lateral_controller(0,0,0);
+PID angular_controller(0,0,0);

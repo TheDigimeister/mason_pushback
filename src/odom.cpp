@@ -70,6 +70,9 @@ void OdometryState::odom_update() {
     this->current_position.x += this->global_delta_x;
     this->current_position.y += this->global_delta_y;
     this->current_position.theta += delta_theta;
+    
+    // Store the delta theta for motion model
+    this->global_delta_theta = delta_theta;
 
     // Normalize angle
     while (this->current_position.theta > PI) {

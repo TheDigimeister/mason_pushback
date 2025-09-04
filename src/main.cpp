@@ -1,4 +1,5 @@
 #include "main.h"
+#include "drive.hpp"
 #include "pros/rtos.hpp"
 
 /**
@@ -77,7 +78,7 @@ void autonomous() {
 	pros::Task mcl_task([=]() {
 		while (true) {
 			mcl.predict();
-			mcl.update();
+			mcl.update(mcl_sensors);
 			mcl.normalize();
 			mcl.resample();
 			mcl.estimate();

@@ -3,7 +3,7 @@
 
 #include "odom.hpp"
 #include "pros/distance.hpp"
-#include <vector>
+#include "pros/imu.hpp"
 
 struct Particle {
     float x;
@@ -17,6 +17,7 @@ struct MCLSensors {
     pros::Distance &back_dist;
     pros::Distance &left_dist;
     pros::Distance &right_dist;
+    pros::Imu &imu;
 };
 
 class MCL {
@@ -27,7 +28,7 @@ class MCL {
     Particle particles[20];
     void init();
     void predict();
-    void update();
+    void update(MCLSensors &sensors);
     void normalize();
     void resample();
     void estimate();
@@ -36,8 +37,29 @@ class MCL {
     private:
     OdometryState odom_state;
     Particle motion_model(Particle p);
-    float sensor_model(Particle p, MCLSensors mcl_sensors, float sigma);
+    float sensor_model(Particle p, MCLSensors &mcl_sensors, float sigma);
     Particle weighted_random_sample(Particle particles[]);
+    float raycast_to_wall(float start_x, float start_y, float dir_x, float dir_y);
+};
+
+class PID {
+    public:
+        PID(
+            float kP,
+            float kI,
+            float kD
+        );
+
+    void init();
+
+    float update(float target, float current);
+    
+    private:
+        float previous_error;
+        float integral;
+        float kP;
+        float kI;
+        float kD;
 };
 
 #endif
