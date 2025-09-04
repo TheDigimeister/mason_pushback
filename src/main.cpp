@@ -23,7 +23,7 @@ bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-int auton_num = 4;
+int auton_num = 5;
 
 /**
  * A callback function for LLEMU's center button.
@@ -380,6 +380,159 @@ void autonomous() {
 		// upper.move(127);
 		odom.set_value(false);
 		pros::delay(3000);
+	}
+
+	else if (auton_num == 5) {
+
+		// Skills
+		odom.set_value(false);
+		chassis.setPose(-47.363,-16.654,180);
+
+		// Path
+
+		lower.move(127);
+		level.set_value(false);
+		matchload.set_value(true);
+
+		// Path
+
+		// Get matchloader
+		chassis.moveToPoint(-47.878, -50, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.turnToHeading(-90, 2000);
+		chassis.moveToPoint(-64.385, -50, 2000, {.forwards = true, .maxSpeed = 80});
+		pros::delay(3000);
+		
+		// Score long goal
+		chassis.moveToPoint(-26.73, -51, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(-90, 2000);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+		matchload.set_value(false);
+		
+		// Get first trio
+		chassis.moveToPoint(-23.893, -23.618, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.waitUntil(10);
+		matchload.set_value(true);
+		pros::delay(500);
+		
+		// // Get second trio
+		// chassis.moveToPoint(-4.807, -43.737, 2000, {.forwards = true, .maxSpeed = 50});
+		// chassis.waitUntil(10);
+		// matchload.set_value(false);
+		// chassis.waitUntil(20);
+		// matchload.set_value(true);
+		// pros::delay(1000);
+		
+		// Get third trio
+		chassis.moveToPoint(-14.608, -32.129, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.turnToHeading(135, 2000);
+		chassis.waitUntil(10);
+		matchload.set_value(false);
+
+		chassis.moveToPoint(40.327, -23.62, 5000, {.forwards = true, .maxSpeed = 127});
+		chassis.moveToPoint(43.938, -51, 5000, {.forwards = true, .maxSpeed = 127});
+
+	
+		// Score second long goal
+		chassis.turnToHeading(90, 2000);
+		chassis.moveToPoint(26.4, -52.5, 2000, {.forwards = false, .maxSpeed = 65}, false);
+		chassis.turnToHeading(90, 2000);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+		
+		// Get second matchloader
+		chassis.turnToHeading(90, 2000);
+		matchload.set_value(true);
+		chassis.moveToPoint(61.733, -50, 2000, {.forwards = true, .maxSpeed = 80});
+		pros::delay(3000);
+
+		// Go to matchloader 3
+		chassis.moveToPoint(29.753, -0.365, 2000, {.forwards = false, .maxSpeed = 100});
+		chassis.moveToPoint(46.259, 47, 2000, {.forwards = true, .maxSpeed = 100});
+
+		// Score long goal 3
+		chassis.turnToHeading(90, 2000);
+		chassis.moveToPoint(23.821, 45.5, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(90, 2000);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+
+
+
+		// Get matchloader
+		chassis.moveToPoint(63.023, 47, 2000, {.forwards = true, .maxSpeed = 80}, false);
+		pros::delay(3000);
+
+
+		// Score long goal 3
+		chassis.moveToPoint(23.821, 45.5, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(90, 2000);
+		upper.move(127);
+		matchload.set_value(false);
+		pros::delay(3000);
+		upper.move(0);
+
+
+
+		// Get 4th trio
+		chassis.moveToPoint(35.942, 47.305, 2000, {.maxSpeed=127});
+		chassis.turnToHeading( 180, 2000);
+		chassis.moveToPose(24.078, 23.835, 225, 2000, {.maxSpeed = 127});
+		chassis.waitUntil(15);
+		matchload.set_value(true);
+		pros::delay(1000);
+
+		// Get 5th trio
+		chassis.turnToPoint(-27, 20, 2000);
+		chassis.moveToPoint(-27, 20, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.waitUntil(10);
+		matchload.set_value(false);
+		// chassis.waitUntil(20);
+		// matchload.set_value(true);
+
+		// Score middle goal
+		chassis.turnToHeading(-45, 2000);
+		chassis.moveToPoint(-12, 7, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(-45, 2000);
+		level.set_value(true);
+		pros::delay(200);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+
+
+		// Go to matchloader 4
+		chassis.moveToPoint(-47.105, 38, 2000, {.forwards = true, .maxSpeed = 127});
+		level.set_value(false);
+		chassis.turnToHeading(-90, 2000);
+		matchload.set_value(true);
+
+		// Get matchloader 4
+		chassis.moveToPoint(-63.353, 38, 2000, {.forwards = true, .maxSpeed = 80}, false);
+		pros::delay(3000);
+
+		// Score long goal 4
+		chassis.moveToPoint(-23.635, 40, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(-90, 2000);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+
+		// Prep for parking
+		chassis.moveToPoint(-47.363, 23.835, 2000, {.forwards = true, .maxSpeed = 127});
+
+		
+		// // Score second long goal
+		// chassis.moveToPoint(26.4, -47.345, 2000, {.forwards = false, .maxSpeed = 50});
+		// upper.move(127);
+		// pros::delay(2000);
+		// upper.move(0);
+
+
+
 	}
 
 }
