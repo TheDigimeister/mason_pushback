@@ -1,11 +1,13 @@
 #include "main.h"
 #include "control.hpp"
-#include "drive.hpp"
-#include "lemlib/api.hpp"
-#include "pros/distance.hpp"
-#include "pros/rtos.hpp"
-#include <cstdio>
-#include <iostream>
+#include "lemlib/chassis/odom.hpp"
+// #include "control.hpp"
+// #include "drive.hpp"
+// #include "lemlib/api.hpp"
+// #include "pros/distance.hpp"
+// #include "pros/rtos.hpp"
+// #include <cstdio>
+// #include <iostream>
 
 pros::Controller master(pros::E_CONTROLLER_MASTER);
 // pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
@@ -20,13 +22,11 @@ pros::ADIDigitalOut matchload('C');
 pros::ADIDigitalOut descore('B');
 pros::ADIDigitalOut odom('D');
 
-pros::Distance back_dist(18);
-
 bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-int auton_num = 4;
+int auton_num = 6;
 
 /**
  * A callback function for LLEMU's center button.
@@ -56,13 +56,16 @@ void initialize() {
 
 	pros::lcd::register_btn1_cb(on_center_button);
 	chassis.calibrate();
+	chassis.setPose(-36, 36, 0);
 
 	initializeMCL();
 
 	pros::Task print_coordinates([=](){
 		while (true) {
 			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
-			std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
+			std::cout << std::endl;
+			std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+			pros::delay(100);
 		}
 	});
 }
@@ -128,6 +131,8 @@ void autonomous() {
 	}
 
 	else if (auton_num == 1) {
+
+		//Right Middle Goal
 		odom.set_value(true);
 		chassis.setPose(-46.847,-14.278,90);
 
@@ -193,6 +198,8 @@ void autonomous() {
 	}
 
 	else if (auton_num == 2){
+
+		//Left Middle Goal
 		odom.set_value(true);
 		chassis.setPose(-46.847,14.278,90);
 
@@ -258,6 +265,8 @@ void autonomous() {
 	}
 
 	else if (auton_num == 3) {
+		
+		// Left low goal
 		odom.set_value(true);
 		chassis.setPose(-46.847,14.278,90);
 
@@ -326,6 +335,8 @@ void autonomous() {
 
 	}
 	else if (auton_num == 4) {
+
+		//Right Low Goal
 		odom.set_value(true);
 		chassis.setPose(-46.847,-14.278,90);
 
@@ -391,6 +402,30 @@ void autonomous() {
 		// upper.move(127);
 		odom.set_value(false);
 		pros::delay(3000);
+	}
+
+	else if (auton_num == 5) {
+
+		// Skills
+		odom.set_value(true);
+		chassis.setPose(-46.847,-14.278,90);
+
+	}
+
+	else if (auton_num == 6) {
+
+		chassis.setPose(-34.983, -34.911, 0);
+
+		while (true) {
+		// Path
+
+		chassis.moveToPoint(-36.015, 58.969, 20000, {.maxSpeed = 20});
+		chassis.moveToPoint(35.427, 58.969, 20000, {.maxSpeed = 20});
+		chassis.moveToPoint(35.169, -34.911, 20000, {.maxSpeed = 20});
+		chassis.moveToPoint(-34.983, -34.911, 20000, {.maxSpeed = 20});
+
+
+		}
 	}
 
 }

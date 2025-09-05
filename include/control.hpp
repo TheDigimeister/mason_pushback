@@ -1,7 +1,14 @@
 #ifndef _CONTROL_HPP_
 #define _CONTROL_HPP_
 
+// #include "robot.hpp"
 #include "lemlib/api.hpp"
+// #include "pros/distance.hpp"
+// #include "pros/rtos.hpp"
+// #include <vector>
+#include <random>
+// #include <cmath>
+// #include <algorithm>
 
 // MCL (Monte Carlo Localization) function declarations
 

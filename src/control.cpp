@@ -1,15 +1,29 @@
 #include "main.h"
-#include "robot.hpp"
-#include "lemlib/api.hpp"
-#include "pros/distance.hpp"
-#include "pros/rtos.hpp"
-#include <vector>
-#include <random>
-#include <cmath>
-#include <algorithm>
+// #include "robot.hpp"
+// #include "lemlib/api.hpp"
+// #include "pros/distance.hpp"
+// #include "pros/rtos.hpp"
+// #include <vector>
+// #include <random>
+// #include <cmath>
+// #include <algorithm>
 
 // MCL (Monte Carlo Localization) Implementation
 // Uses distance sensors on all four sides of the robot for pose estimation
+// 
+// VRC/LemLib Coordinate System:
+// - X+ = Right (East direction)
+// - Y+ = Forward/North (towards opponent side) 
+// - Angle 0° = North (Y+ direction)
+// - Positive angles = Clockwise rotation
+// - Field center at origin (0, 0)
+// - Field bounds: X ∈ [-72, +72], Y ∈ [-72, +72] inches
+//
+// Sensor Layout (relative to robot):
+// - Front sensor: points forward (Y+ direction when robot heading = 0°)
+// - Back sensor: points backward (Y- direction when robot heading = 0°)  
+// - Left sensor: points left (X- direction when robot heading = 0°)
+// - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
 const int NUM_PARTICLES = 500;
@@ -18,6 +32,12 @@ const double FIELD_LENGTH = 144.0; // VRC field length in inches
 const double SENSOR_NOISE_STD = 2.0; // Standard deviation for sensor noise
 const double MOTION_NOISE_STD = 0.5; // Standard deviation for motion noise
 const double ANGLE_NOISE_STD = 0.1; // Standard deviation for angular noise
+
+// Field boundaries (VRC field centered at origin)
+const double FIELD_X_MIN = -FIELD_WIDTH / 2.0;   // -72 inches
+const double FIELD_X_MAX = FIELD_WIDTH / 2.0;    // +72 inches  
+const double FIELD_Y_MIN = -FIELD_LENGTH / 2.0;  // -72 inches
+const double FIELD_Y_MAX = FIELD_LENGTH / 2.0;   // +72 inches
 
 // Robot dimensions (adjust based on your robot)
 const double ROBOT_WIDTH = 18.0;  // Robot width in inches
@@ -63,8 +83,8 @@ public:
     
     // Initialize particles randomly across the field
     void initializeParticles() {
-        std::uniform_real_distribution<double> x_dist(ROBOT_WIDTH/2, FIELD_WIDTH - ROBOT_WIDTH/2);
-        std::uniform_real_distribution<double> y_dist(ROBOT_LENGTH/2, FIELD_LENGTH - ROBOT_LENGTH/2);
+        std::uniform_real_distribution<double> x_dist(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
+        std::uniform_real_distribution<double> y_dist(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
         std::uniform_real_distribution<double> theta_dist(-M_PI, M_PI);
         
         for (auto& particle : particles) {
@@ -86,9 +106,12 @@ public:
         // Calculate motion delta
         double dx = current_pose.x - last_pose.x;
         double dy = current_pose.y - last_pose.y;
-        double dtheta = current_pose.theta - last_pose.theta;
+        double dtheta_degrees = current_pose.theta - last_pose.theta;
         
-        // Normalize angle difference
+        // Convert angle difference to radians for particle calculations
+        double dtheta = dtheta_degrees * M_PI / 180.0;
+        
+        // Normalize angle difference (in radians)
         while (dtheta > M_PI) dtheta -= 2 * M_PI;
         while (dtheta < -M_PI) dtheta += 2 * M_PI;
         
@@ -104,62 +127,65 @@ public:
             particle.y += noisy_dy;
             particle.theta += noisy_dtheta;
             
-            // Normalize angle
+            // Normalize angle (keep in radians)
             while (particle.theta > M_PI) particle.theta -= 2 * M_PI;
             while (particle.theta < -M_PI) particle.theta += 2 * M_PI;
             
             // Keep particles within field bounds
-            particle.x = std::max(ROBOT_WIDTH/2, std::min(particle.x, FIELD_WIDTH - ROBOT_WIDTH/2));
-            particle.y = std::max(ROBOT_LENGTH/2, std::min(particle.y, FIELD_LENGTH - ROBOT_LENGTH/2));
+            particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
+            particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
         }
         
         last_pose = current_pose;
     }
     
     // Get expected distance from particle to wall in global coordinates
+    // VRC Coordinate System: X+ = Right, Y+ = North, 0° = North, Clockwise positive
     double getExpectedDistance(const Particle& particle, int sensor_id) {
         double sensor_x, sensor_y;
-        double expected_dist;
+        double expected_dist = 0.0;
         
-        // Calculate sensor position in global coordinates
+        // Convert particle theta from radians to LemLib convention
+        // LemLib: 0° = North (Y+), clockwise positive
+        // Our particles use standard math convention, so we need to convert
+        double robot_heading = particle.theta;
+        
+        // Calculate sensor position in global coordinates relative to robot center
         switch (sensor_id) {
-            case 0: // Front sensor
-                sensor_x = particle.x + FRONT_SENSOR_OFFSET * cos(particle.theta);
-                sensor_y = particle.y + FRONT_SENSOR_OFFSET * sin(particle.theta);
-                // Distance to front wall (considering robot orientation)
-                expected_dist = (FIELD_LENGTH - sensor_y) / sin(particle.theta + M_PI/2);
-                if (expected_dist < 0) expected_dist = sensor_y / sin(particle.theta - M_PI/2);
+            case 0: // Front sensor (points forward relative to robot)
+                sensor_x = particle.x + FRONT_SENSOR_OFFSET * sin(robot_heading);
+                sensor_y = particle.y + FRONT_SENSOR_OFFSET * cos(robot_heading);
+                // Distance to north wall (Y = FIELD_Y_MAX)
+                expected_dist = FIELD_Y_MAX - sensor_y;
                 break;
                 
-            case 1: // Back sensor
-                sensor_x = particle.x - BACK_SENSOR_OFFSET * cos(particle.theta);
-                sensor_y = particle.y - BACK_SENSOR_OFFSET * sin(particle.theta);
-                // Distance to back wall (considering robot orientation)
-                expected_dist = sensor_y / sin(particle.theta - M_PI/2);
-                if (expected_dist < 0) expected_dist = (FIELD_LENGTH - sensor_y) / sin(particle.theta + M_PI/2);
+            case 1: // Back sensor (points backward relative to robot)
+                sensor_x = particle.x - BACK_SENSOR_OFFSET * sin(robot_heading);
+                sensor_y = particle.y - BACK_SENSOR_OFFSET * cos(robot_heading);
+                // Distance to south wall (Y = FIELD_Y_MIN)
+                expected_dist = sensor_y - FIELD_Y_MIN;
                 break;
                 
-            case 2: // Left sensor
-                sensor_x = particle.x - LEFT_SENSOR_OFFSET * sin(particle.theta);
-                sensor_y = particle.y + LEFT_SENSOR_OFFSET * cos(particle.theta);
-                // Distance to left wall (considering robot orientation)
-                expected_dist = sensor_x / cos(particle.theta);
-                if (expected_dist < 0) expected_dist = (FIELD_WIDTH - sensor_x) / cos(particle.theta + M_PI);
+            case 2: // Left sensor (points left relative to robot)
+                sensor_x = particle.x - LEFT_SENSOR_OFFSET * cos(robot_heading);
+                sensor_y = particle.y + LEFT_SENSOR_OFFSET * sin(robot_heading);
+                // Distance to west wall (X = FIELD_X_MIN)
+                expected_dist = sensor_x - FIELD_X_MIN;
                 break;
                 
-            case 3: // Right sensor
-                sensor_x = particle.x + RIGHT_SENSOR_OFFSET * sin(particle.theta);
-                sensor_y = particle.y - RIGHT_SENSOR_OFFSET * cos(particle.theta);
-                // Distance to right wall (considering robot orientation)
-                expected_dist = (FIELD_WIDTH - sensor_x) / cos(particle.theta + M_PI);
-                if (expected_dist < 0) expected_dist = sensor_x / cos(particle.theta);
+            case 3: // Right sensor (points right relative to robot)
+                sensor_x = particle.x + RIGHT_SENSOR_OFFSET * cos(robot_heading);
+                sensor_y = particle.y - RIGHT_SENSOR_OFFSET * sin(robot_heading);
+                // Distance to east wall (X = FIELD_X_MAX)
+                expected_dist = FIELD_X_MAX - sensor_x;
                 break;
                 
             default:
                 expected_dist = 0;
         }
         
-        return std::abs(expected_dist);
+        // Ensure distance is positive (sensors can't see through walls)
+        return std::max(0.0, expected_dist);
     }
     
     // Update step: weight particles based on sensor measurements
@@ -366,9 +392,11 @@ void resetMCL() {
 // Update the chassis pose with the MCL estimated pose
 void updateChassisPoseFromMCL(bool force_update) {
     extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
+    extern pros::Controller master; // Reference to master controller from main.cpp
     
     // Only update if MCL has converged or if forced, and limit frequency
     static uint32_t last_update_time = 0;
+    static uint32_t last_controller_update_time = 0;
     uint32_t current_time = pros::millis();
     
     // Only update every 5 seconds (5000ms) when converged, or immediately if forced
@@ -391,7 +419,49 @@ void updateChassisPoseFromMCL(bool force_update) {
             
             printf("MCL Correction Applied: Pos Error=%.2f, Angle Error=%.2f\n", 
                    position_error, error.theta);
+            
+            // Display MCL convergence and pose update on controller screen
+            // Update controller screen every 500ms to avoid overwhelming the display
+            if ((current_time - last_controller_update_time) > 500) {
+                master.clear();
+                pros::delay(50);
+                master.print(0, 0, "MCL CONVERGED!");
+                pros::delay(50);
+                master.print(1, 0, "X:%.1f Y:%.1f", mcl_pose.x, mcl_pose.y);
+                pros::delay(50);
+                master.print(2, 0, "Theta:%.1f Err:%.1f", mcl_pose.theta, position_error);
+                pros::delay(50);
+                last_controller_update_time = current_time;
+            }
         }
+    }
+    
+    // Also display convergence status periodically even when not updating pose
+    if (mcl_controller.isConverged() && (current_time - last_controller_update_time) > 2000) {
+        lemlib::Pose mcl_pose = mcl_controller.getEstimatedPose();
+        double uncertainty = mcl_controller.getParticleSpread();
+        
+        master.clear();
+        pros::delay(50);
+        master.print(0, 0, "MCL: GOOD");
+        pros::delay(50);
+        master.print(1, 0, "X:%.1f Y:%.1f", mcl_pose.x, mcl_pose.y);
+        pros::delay(50);
+        master.print(2, 0, "H:%.1f U:%.1f", mcl_pose.theta, uncertainty);
+        pros::delay(50);
+        last_controller_update_time = current_time;
+    } else if (!mcl_controller.isConverged() && (current_time - last_controller_update_time) > 3000) {
+        double uncertainty = mcl_controller.getParticleSpread();
+        
+        master.clear();
+        pros::delay(50);
+        master.print(0, 0, "MCL: SEARCHING");
+        pros::delay(50);
+        master.print(1, 0, "Uncertainty:");
+        pros::delay(50);
+        master.print(2, 0, "%.1f inches", uncertainty);
+        pros::delay(50);
+        last_controller_update_time = current_time;
     }
 }
 
