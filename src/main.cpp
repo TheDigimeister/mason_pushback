@@ -1,6 +1,11 @@
 #include "main.h"
 #include "control.hpp"
+#include "drive.hpp"
+#include "lemlib/chassis/chassis.hpp"
 #include "lemlib/chassis/odom.hpp"
+#include "pros/imu.h"
+#include "pros/imu.hpp"
+#include "pros/rtos.hpp"
 // #include "control.hpp"
 // #include "drive.hpp"
 // #include "lemlib/api.hpp"
@@ -56,16 +61,25 @@ void initialize() {
 
 	pros::lcd::register_btn1_cb(on_center_button);
 	chassis.calibrate();
-	chassis.setPose(-36, 36, 0);
-
+	while(inertial.is_calibrating()){
+		pros::delay(50);
+	}
+	chassis.setPose(-36, -24, 0);
 	initializeMCL();
+
+	pros::Task mcl_resets([=](){
+		pros::delay(30000);
+		resetMCL();
+	});
 
 	pros::Task print_coordinates([=](){
 		while (true) {
 			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
-			std::cout << std::endl;
-			std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
-			pros::delay(100);
+			if (true) {
+				// std::cout << std::endl;
+				// std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
+				pros::delay(100);
+			}
 		}
 	});
 }
@@ -414,15 +428,18 @@ void autonomous() {
 
 	else if (auton_num == 6) {
 
-		chassis.setPose(-34.983, -34.911, 0);
+		chassis.setPose(-36, -24, 0);
+		resetMCL();
 
 		while (true) {
-		// Path
 
-		chassis.moveToPoint(-36.015, 58.969, 20000, {.maxSpeed = 20});
-		chassis.moveToPoint(35.427, 58.969, 20000, {.maxSpeed = 20});
-		chassis.moveToPoint(35.169, -34.911, 20000, {.maxSpeed = 20});
-		chassis.moveToPoint(-34.983, -34.911, 20000, {.maxSpeed = 20});
+
+			chassis.moveToPoint(-36, 24, 10000, {.maxSpeed=30});
+			chassis.turnToPoint(-36, -24, 10000, {.direction=lemlib::AngularDirection::CCW_COUNTERCLOCKWISE, .maxSpeed=30});
+			chassis.moveToPoint(-36, -24, 10000, {.maxSpeed=30});
+			chassis.turnToPoint(-36,24,10000, {.direction=lemlib::AngularDirection::CW_CLOCKWISE, .maxSpeed=30});
+
+
 
 
 		}
