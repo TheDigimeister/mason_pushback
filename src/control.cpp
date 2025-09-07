@@ -1,16 +1,14 @@
 #include "main.h"
-// #include "robot.hpp"
-// #include "lemlib/api.hpp"
-// #include "pros/distance.hpp"
-// #include "pros/rtos.hpp"
-// #include <vector>
-// #include <random>
-// #include <cmath>
-// #include <algorithm>
 #include <limits>
 
-// MCL (Monte Carlo Localization) Implementation
+// MCL (Monte Carlo Localization) Implementation - SIMPLIFIED FOR RELIABLE IMU
 // Uses distance sensors on all four sides of the robot for pose estimation
+// 
+// MODIFICATION: Assumes IMU is very reliable for heading measurements
+// - All particles share the same heading from IMU (no angular uncertainty)
+// - MCL focuses only on position (x, y) estimation
+// - Removes angular noise and theta error calculations
+// - Simplified particle filter with better computational efficiency
 // 
 // VRC/LemLib Coordinate System:
 // - X+ = Right (East direction)
@@ -27,12 +25,12 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 500;
+const int NUM_PARTICLES = 1000;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
-const double BASE_SENSOR_NOISE_STD = 1.0; // Base standard deviation for sensor noise
-const double MOTION_NOISE_STD = 1.5; // Standard deviation for motion noise
-const double ANGLE_NOISE_STD = 0.5; // Standard deviation for angular noise
+const double BASE_SENSOR_NOISE_STD = 1.5; // Base standard deviation for sensor noise
+const double MOTION_NOISE_STD = 1.0; // Standard deviation for motion noise
+// ANGLE_NOISE_STD removed - using reliable IMU heading directly
 
 // Field boundaries (VRC field centered at origin)
 const double FIELD_X_MIN = -FIELD_WIDTH / 2.0;   // -72 inches
@@ -42,7 +40,7 @@ const double FIELD_Y_MAX = FIELD_LENGTH / 2.0;   // +72 inches
 
 // Robot dimensions (adjust based on your robot)
 const double ROBOT_WIDTH = 11.5;  // Robot width in inches
-const double ROBOT_LENGTH = 8.0; // Robot length in inches
+const double ROBOT_LENGTH = 8.5; // Robot length in inches
 
 // Distance from robot center to each sensor (adjust based on your robot)
 const double FRONT_SENSOR_OFFSET = ROBOT_LENGTH / 2.0;
@@ -92,7 +90,6 @@ private:
     std::random_device rd;
     std::mt19937 gen;
     std::normal_distribution<double> motion_noise;
-    std::normal_distribution<double> angle_noise;
     std::normal_distribution<double> sensor_noise;
     
     lemlib::Pose last_pose;
@@ -101,7 +98,6 @@ private:
 public:
     MCLController() : gen(rd()), 
                       motion_noise(0.0, MOTION_NOISE_STD),
-                      angle_noise(0.0, ANGLE_NOISE_STD),
                       sensor_noise(0.0, BASE_SENSOR_NOISE_STD),
                       initialized(false),
                       last_pose(chassis.getPose()) {
@@ -122,23 +118,20 @@ public:
                    odom_pose.x, odom_pose.y, odom_pose.theta);
             
             // Initialize particles around current odometry position with some spread
+            // Use IMU heading directly - no angular uncertainty
             std::normal_distribution<double> x_dist(odom_pose.x, 12.0);  // 12 inch standard deviation
             std::normal_distribution<double> y_dist(odom_pose.y, 12.0);  // 12 inch standard deviation
-            std::normal_distribution<double> theta_dist(odom_pose.theta * M_PI / 180.0, M_PI/6); // ±30° std dev
+            double imu_heading_rad = odom_pose.theta * M_PI / 180.0; // Convert to radians, trust IMU
             
             for (auto& particle : particles) {
                 particle.x = x_dist(gen);
                 particle.y = y_dist(gen);
-                particle.theta = theta_dist(gen);
+                particle.theta = imu_heading_rad; // All particles use same IMU heading
                 particle.weight = 1.0 / NUM_PARTICLES;
                 
                 // Keep particles within field bounds
                 particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
                 particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
-                
-                // Normalize angle
-                while (particle.theta > M_PI) particle.theta -= 2 * M_PI;
-                while (particle.theta < -M_PI) particle.theta += 2 * M_PI;
                 
                 // Validate initialized particle
                 if (!std::isfinite(particle.x) || !std::isfinite(particle.y) || 
@@ -146,7 +139,7 @@ public:
                     std::printf("Warning: Invalid particle initialized, resetting to odometry pose\n");
                     particle.x = odom_pose.x;
                     particle.y = odom_pose.y;
-                    particle.theta = odom_pose.theta * M_PI / 180.0;
+                    particle.theta = imu_heading_rad; // Use IMU heading directly
                     particle.weight = 1.0 / NUM_PARTICLES;
                 }
             }
@@ -154,14 +147,15 @@ public:
             std::printf("MCL: Odometry pose invalid, using uniform field distribution\n");
             
             // Fall back to uniform distribution across entire field
+            // Use current IMU heading (or default 0) for all particles
             std::uniform_real_distribution<double> x_dist(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
             std::uniform_real_distribution<double> y_dist(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
-            std::uniform_real_distribution<double> theta_dist(-M_PI, M_PI);
+            double default_heading = 0.0; // Default to facing north if no IMU data
             
             for (auto& particle : particles) {
                 particle.x = x_dist(gen);
                 particle.y = y_dist(gen);
-                particle.theta = theta_dist(gen);
+                particle.theta = default_heading; // All particles use same heading
                 particle.weight = 1.0 / NUM_PARTICLES;
                 
                 // Validate initialized particle
@@ -170,7 +164,7 @@ public:
                     std::printf("Warning: Invalid particle initialized, resetting to default\n");
                     particle.x = 0.0;
                     particle.y = 0.0;
-                    particle.theta = 0.0;
+                    particle.theta = default_heading;
                     particle.weight = 1.0 / NUM_PARTICLES;
                 }
             }
@@ -191,39 +185,29 @@ public:
             return;
         }
         
-        // Calculate motion delta
+        // Calculate motion delta (position only - ignore theta since using IMU directly)
         double dx = current_pose.x - last_pose.x;
         double dy = current_pose.y - last_pose.y;
-        double dtheta_degrees = current_pose.theta - last_pose.theta;
         
         // Validate motion deltas
-        if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dtheta_degrees)) {
+        if (!std::isfinite(dx) || !std::isfinite(dy)) {
             std::printf("Warning: Invalid motion delta calculated, skipping prediction\n");
             return;
         }
         
-        // Convert angle difference to radians for particle calculations
-        double dtheta = dtheta_degrees * M_PI / 180.0;
-        
-        // Normalize angle difference (in radians)
-        while (dtheta > M_PI) dtheta -= 2 * M_PI;
-        while (dtheta < -M_PI) dtheta += 2 * M_PI;
+        // Get current IMU heading for all particles
+        double current_imu_heading = current_pose.theta * M_PI / 180.0; // Convert to radians
         
         // Move each particle
         for (auto& particle : particles) {
-            // Add motion noise
+            // Add motion noise only to position
             double noisy_dx = dx + motion_noise(gen);
             double noisy_dy = dy + motion_noise(gen);
-            double noisy_dtheta = dtheta + angle_noise(gen);
             
-            // Update particle pose
+            // Update particle position
             particle.x += noisy_dx;
             particle.y += noisy_dy;
-            particle.theta += noisy_dtheta;
-            
-            // Normalize angle (keep in radians)
-            while (particle.theta > M_PI) particle.theta -= 2 * M_PI;
-            while (particle.theta < -M_PI) particle.theta += 2 * M_PI;
+            particle.theta = current_imu_heading; // All particles use reliable IMU heading
             
             // Keep particles within field bounds
             particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
@@ -557,7 +541,7 @@ public:
         new_particles.reserve(NUM_PARTICLES);
         
         // Calculate how many particles for each method
-        int resampled_count = (NUM_PARTICLES);      // 80% from systematic resampling
+        int resampled_count = (NUM_PARTICLES)* 0.9;      // 80% from systematic resampling
         int random_count = NUM_PARTICLES - resampled_count;  // 20% random (handles rounding)
         
         // Part 1: Systematic resampling for 80% of particles
@@ -591,24 +575,21 @@ public:
         
         if (use_pose_guidance) {
             // Generate random particles around current estimated pose (with wider spread than initialization)
+            // Use IMU heading directly - no angular uncertainty
             std::normal_distribution<double> x_dist(estimated_pose.x, 20.0);  // 20 inch standard deviation
             std::normal_distribution<double> y_dist(estimated_pose.y, 20.0);  // 20 inch standard deviation
-            std::normal_distribution<double> theta_dist(estimated_pose.theta * M_PI / 180.0, M_PI/3); // ±60° std dev
+            double current_imu_heading = estimated_pose.theta * M_PI / 180.0; // Trust IMU heading
             
             for (int m = 0; m < random_count; m++) {
                 Particle random_particle;
                 random_particle.x = x_dist(gen);
                 random_particle.y = y_dist(gen);
-                random_particle.theta = theta_dist(gen);
+                random_particle.theta = current_imu_heading; // All particles use same IMU heading
                 random_particle.weight = 1.0 / NUM_PARTICLES;
                 
                 // Keep particles within field bounds
                 random_particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(random_particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
                 random_particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(random_particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
-                
-                // Normalize angle
-                while (random_particle.theta > M_PI) random_particle.theta -= 2 * M_PI;
-                while (random_particle.theta < -M_PI) random_particle.theta += 2 * M_PI;
                 
                 // Validate particle before adding
                 if (std::isfinite(random_particle.x) && std::isfinite(random_particle.y) && 
@@ -650,38 +631,36 @@ public:
             lemlib::Pose odom_pose = chassis.getPose();
             if (std::isfinite(odom_pose.x) && std::isfinite(odom_pose.y) && std::isfinite(odom_pose.theta)) {
                 // Generate particles around odometry pose
+                // Use IMU heading directly - no angular uncertainty
                 std::normal_distribution<double> x_dist(odom_pose.x, 15.0);  // 15 inch standard deviation
                 std::normal_distribution<double> y_dist(odom_pose.y, 15.0);  // 15 inch standard deviation
-                std::normal_distribution<double> theta_dist(odom_pose.theta * M_PI / 180.0, M_PI/4); // ±45° std dev
+                double current_imu_heading = odom_pose.theta * M_PI / 180.0; // Trust IMU heading
                 
                 for (int m = 0; m < random_count; m++) {
                     Particle random_particle;
                     random_particle.x = x_dist(gen);
                     random_particle.y = y_dist(gen);
-                    random_particle.theta = theta_dist(gen);
+                    random_particle.theta = current_imu_heading; // All particles use same IMU heading
                     random_particle.weight = 1.0 / NUM_PARTICLES;
                     
                     // Keep particles within field bounds
                     random_particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(random_particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
                     random_particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(random_particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
                     
-                    // Normalize angle
-                    while (random_particle.theta > M_PI) random_particle.theta -= 2 * M_PI;
-                    while (random_particle.theta < -M_PI) random_particle.theta += 2 * M_PI;
-                    
                     new_particles.push_back(random_particle);
                 }
             } else {
                 // Ultimate fallback: uniform random distribution if odometry is also invalid
+                // Use default heading (north) for all particles
                 std::uniform_real_distribution<double> x_dist(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
                 std::uniform_real_distribution<double> y_dist(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
-                std::uniform_real_distribution<double> theta_dist(-M_PI, M_PI);
+                double default_heading = 0.0; // Default to facing north
                 
                 for (int m = 0; m < random_count; m++) {
                     Particle random_particle;
                     random_particle.x = x_dist(gen);
                     random_particle.y = y_dist(gen);
-                    random_particle.theta = theta_dist(gen);
+                    random_particle.theta = default_heading; // All particles use same default heading
                     random_particle.weight = 1.0 / NUM_PARTICLES;
                     new_particles.push_back(random_particle);
                 }
@@ -691,12 +670,11 @@ public:
         particles = std::move(new_particles);
     }
     
-    // Get estimated pose (weighted average of particles)
+    // Get estimated pose (weighted average of particles for position, IMU for heading)
     lemlib::Pose getEstimatedPose() {
         extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
         
         double x_sum = 0.0, y_sum = 0.0;
-        double sin_sum = 0.0, cos_sum = 0.0;
         double weight_sum = 0.0;
         
         for (const auto& particle : particles) {
@@ -710,8 +688,6 @@ public:
             
             x_sum += particle.x * particle.weight;
             y_sum += particle.y * particle.weight;
-            sin_sum += sin(particle.theta) * particle.weight;
-            cos_sum += cos(particle.theta) * particle.weight;
             weight_sum += particle.weight;
         }
         
@@ -736,7 +712,8 @@ public:
             return odom_pose;
         }
         
-        double estimated_theta = atan2(sin_sum, cos_sum);
+        // Use IMU heading directly (already in degrees from odometry)
+        double estimated_theta = odom_pose.theta; 
         
         // Validate final result
         if (!std::isfinite(x_sum) || !std::isfinite(y_sum) || !std::isfinite(estimated_theta)) {
@@ -745,7 +722,7 @@ public:
             return odom_pose;
         }
         
-        return lemlib::Pose(x_sum, y_sum, estimated_theta * 180.0 / M_PI); // Convert to degrees for LemLib
+        return lemlib::Pose(x_sum, y_sum, estimated_theta); // Use IMU heading directly
     }
     
     // Calculate pose error in global coordinates
@@ -779,7 +756,7 @@ public:
     }
     
     // Check if localization is converged
-    bool isConverged(double threshold = 3.0) {
+    bool isConverged(double threshold = 5.0) {
         return getParticleSpread() < threshold;
     }
     
