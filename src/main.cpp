@@ -53,7 +53,27 @@ void initialize() {
 
 	pros::lcd::register_btn1_cb(on_center_button);
 	chassis.calibrate();
+	while(inertial.is_calibrating()){
+		pros::delay(50);
+	}
+	chassis.setPose(-36, 24, 180);
+	initializeMCL();
 
+	pros::Task mcl_resets([=](){
+		pros::delay(10000);
+		resetMCL();
+	});
+
+	pros::Task print_coordinates([=](){
+		while (true) {
+			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
+			if (true) {
+				std::cout << std::endl;
+				std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
+				pros::delay(100);
+			}
+		}
+	});
 }
 
 /**
