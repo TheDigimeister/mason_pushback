@@ -57,6 +57,23 @@ double getMCLUncertainty();
 void resetMCL();
 
 /**
+ * Get sensor fusion state for debugging
+ * @param x Reference to store estimated x position
+ * @param y Reference to store estimated y position
+ * @param theta Reference to store estimated heading in degrees
+ * @param vx Reference to store estimated x velocity
+ * @param vy Reference to store estimated y velocity
+ * @param omega Reference to store estimated angular velocity
+ */
+void getMCLSensorFusionState(double& x, double& y, double& theta, double& vx, double& vy, double& omega);
+
+/**
+ * Print sensor fusion debug information to console
+ * Useful for monitoring and tuning sensor fusion performance
+ */
+void printMCLSensorFusionDebug();
+
+/**
  * Update the chassis pose with the MCL estimated pose
  * Only updates if MCL has converged and estimate is reliable
  * @param force_update If true, updates regardless of convergence status

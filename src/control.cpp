@@ -13,6 +13,16 @@
 //    - Robust to individual sensor failures/noise
 //    - One bad sensor doesn't kill entire particle weight
 //    - Averages likelihood across all valid sensors
+// 3. Field geometry simplified to perimeter walls only
+//    - Removed all field obstacles (goals, loaders, etc.)
+//    - Only uses field perimeter walls for distance sensor measurements
+//    - Faster computation and simpler localization
+// 4. Enhanced sensor fusion with Kalman filter
+//    - Fuses IMU, distance sensors, and odometry in a single Kalman filter
+//    - Extended state vector includes position, heading, and velocities
+//    - Distance sensors provide position constraints from field boundaries
+//    - IMU provides reliable heading measurements  
+//    - Improved motion prediction and state estimation
 // 
 // VRC/LemLib Coordinate System:
 // - X+ = Right (East direction)
@@ -29,12 +39,268 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 2000;
+const int NUM_PARTICLES = 500;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
 const double BASE_SENSOR_NOISE_STD = 0.5; // Base standard deviation for sensor noise
-const double MOTION_NOISE_STD = 0.5; // Standard deviation for motion noise
+const double MOTION_NOISE_STD = 1.0; // Standard deviation for motion noise
 // ANGLE_NOISE_STD removed - using reliable IMU heading directly
+
+// Field boundaries (VRC field centered at origin)
+const double FIELD_X_MIN = -FIELD_WIDTH / 2.0;   // -72 inches
+const double FIELD_X_MAX = FIELD_WIDTH / 2.0;    // +72 inches  
+const double FIELD_Y_MIN = -FIELD_LENGTH / 2.0;  // -72 inches
+const double FIELD_Y_MAX = FIELD_LENGTH / 2.0;   // +72 inches
+
+// Kalman Filter Configuration
+const double KALMAN_PROCESS_NOISE = 0.1;  // Process noise (acceleration uncertainty)
+const double KALMAN_MEASUREMENT_NOISE = 1.0; // Measurement noise (odometry uncertainty)
+const double KALMAN_IMU_NOISE = 0.1;      // IMU heading measurement noise
+const double KALMAN_DISTANCE_NOISE = 0.5; // Distance sensor measurement noise
+
+// Enhanced Kalman Filter for sensor fusion (IMU + Distance Sensors + Odometry)
+class SensorFusionKalmanFilter {
+private:
+    // Enhanced state vector: [x, y, theta, vx, vy, omega] (position, heading, velocities)
+    double state[6];
+    
+    // Covariance matrix (6x6, stored as flat array)
+    double P[36];
+    
+    // Process noise covariance Q (6x6)
+    double Q[36];
+    
+    uint32_t last_time;
+    bool initialized;
+    
+public:
+    SensorFusionKalmanFilter() : initialized(false), last_time(0) {
+        // Initialize state to zero
+        for (int i = 0; i < 6; i++) state[i] = 0.0;
+        
+        // Initialize covariance matrix P (high initial uncertainty)
+        for (int i = 0; i < 36; i++) P[i] = 0.0;
+        P[0] = P[7] = 100.0;     // High position uncertainty
+        P[14] = 10.0;            // Moderate heading uncertainty
+        P[21] = P[28] = 10.0;    // Moderate velocity uncertainty
+        P[35] = 5.0;             // Moderate angular velocity uncertainty
+        
+        // Initialize process noise Q
+        for (int i = 0; i < 36; i++) Q[i] = 0.0;
+        Q[0] = Q[7] = KALMAN_PROCESS_NOISE;     // Position process noise
+        Q[14] = KALMAN_PROCESS_NOISE * 0.1;     // Heading process noise (lower)
+        Q[21] = Q[28] = KALMAN_PROCESS_NOISE;   // Velocity process noise
+        Q[35] = KALMAN_PROCESS_NOISE * 0.5;     // Angular velocity process noise
+    }
+    
+    void predict(double dt) {
+        if (dt <= 0.0) return;
+        
+        // State transition model:
+        // x_new = x + vx*dt*cos(theta) - vy*dt*sin(theta)
+        // y_new = y + vx*dt*sin(theta) + vy*dt*cos(theta)
+        // theta_new = theta + omega*dt
+        // vx, vy, omega remain the same in prediction step
+        
+        double cos_theta = cos(state[2]);
+        double sin_theta = sin(state[2]);
+        
+        double new_x = state[0] + (state[3] * cos_theta - state[4] * sin_theta) * dt;
+        double new_y = state[1] + (state[3] * sin_theta + state[4] * cos_theta) * dt;
+        double new_theta = state[2] + state[5] * dt;
+        
+        // Normalize theta to [-pi, pi]
+        while (new_theta > M_PI) new_theta -= 2.0 * M_PI;
+        while (new_theta < -M_PI) new_theta += 2.0 * M_PI;
+        
+        state[0] = new_x;
+        state[1] = new_y;
+        state[2] = new_theta;
+        
+        // Update covariance matrix P with process noise (simplified diagonal update)
+        P[0] += Q[0] * dt * dt;    // Position variance grows with time squared
+        P[7] += Q[7] * dt * dt;
+        P[14] += Q[14] * dt * dt;  // Heading variance grows with time squared
+        P[21] += Q[21] * dt;       // Velocity variance grows linearly
+        P[28] += Q[28] * dt;
+        P[35] += Q[35] * dt;       // Angular velocity variance grows linearly
+    }
+    
+    // Update with odometry position measurement
+    void updateOdometry(double measured_x, double measured_y) {
+        // Measurement model: H = [1, 0, 0, 0, 0, 0; 0, 1, 0, 0, 0, 0]
+        double R_odom = KALMAN_MEASUREMENT_NOISE;
+        
+        // Innovation
+        double innovation_x = measured_x - state[0];
+        double innovation_y = measured_y - state[1];
+        
+        // Kalman gain (simplified for position measurement)
+        double S_x = P[0] + R_odom;  // Innovation covariance for x
+        double S_y = P[7] + R_odom;  // Innovation covariance for y
+        
+        double K_x = P[0] / S_x;     // Kalman gain for x
+        double K_y = P[7] / S_y;     // Kalman gain for y
+        
+        // Update state
+        state[0] += K_x * innovation_x;
+        state[1] += K_y * innovation_y;
+        
+        // Update covariance (simplified)
+        P[0] *= (1.0 - K_x);
+        P[7] *= (1.0 - K_y);
+    }
+    
+    // Update with IMU heading measurement
+    void updateIMU(double measured_theta_deg) {
+        double measured_theta = measured_theta_deg * M_PI / 180.0; // Convert to radians
+        double R_imu = KALMAN_IMU_NOISE;
+        
+        // Handle angle wrapping for innovation
+        double innovation_theta = measured_theta - state[2];
+        while (innovation_theta > M_PI) innovation_theta -= 2.0 * M_PI;
+        while (innovation_theta < -M_PI) innovation_theta += 2.0 * M_PI;
+        
+        // Kalman gain for heading
+        double S_theta = P[14] + R_imu;
+        double K_theta = P[14] / S_theta;
+        
+        // Update state
+        state[2] += K_theta * innovation_theta;
+        
+        // Normalize theta
+        while (state[2] > M_PI) state[2] -= 2.0 * M_PI;
+        while (state[2] < -M_PI) state[2] += 2.0 * M_PI;
+        
+        // Update covariance
+        P[14] *= (1.0 - K_theta);
+    }
+    
+    // Update with distance sensor measurements (position constraints)
+    void updateDistanceSensors(double front_dist, double back_dist, double left_dist, double right_dist,
+                              bool front_valid, bool back_valid, bool left_valid, bool right_valid) {
+        double R_dist = KALMAN_DISTANCE_NOISE;
+        
+        // Get robot position and heading
+        double robot_x = state[0];
+        double robot_y = state[1];
+        double robot_theta = state[2];
+        
+        // Process each valid distance sensor
+        if (front_valid && front_dist > 0.1 && front_dist < 50.0) {
+            // Front sensor points in +Y direction relative to robot
+            double expected_wall_x = robot_x + front_dist * sin(robot_theta);
+            double expected_wall_y = robot_y + front_dist * cos(robot_theta);
+            
+            // Find closest field boundary
+            double wall_constraint = 0.0;
+            bool valid_constraint = false;
+            
+            // Check which wall this sensor is likely detecting
+            if (cos(robot_theta) > 0.7) { // Pointing roughly north
+                wall_constraint = FIELD_Y_MAX;
+                expected_wall_y = wall_constraint;
+                valid_constraint = true;
+            } else if (cos(robot_theta) < -0.7) { // Pointing roughly south
+                wall_constraint = FIELD_Y_MIN;
+                expected_wall_y = wall_constraint;
+                valid_constraint = true;
+            }
+            
+            if (valid_constraint) {
+                // Innovation: difference between expected and actual wall position
+                double innovation_y = expected_wall_y - (robot_y + front_dist * cos(robot_theta));
+                
+                // Kalman gain for y position from front sensor
+                double S_front = P[7] + R_dist;
+                double K_front = P[7] / S_front;
+                
+                // Update y position
+                state[1] += K_front * innovation_y * 0.1; // Scale down to avoid large corrections
+            }
+        }
+        
+        if (left_valid && left_dist > 0.1 && left_dist < 50.0) {
+            // Left sensor points in -X direction relative to robot
+            if (sin(robot_theta) < -0.7) { // Pointing roughly west
+                double wall_constraint = FIELD_X_MIN;
+                double innovation_x = wall_constraint - (robot_x - left_dist * cos(robot_theta));
+                
+                double S_left = P[0] + R_dist;
+                double K_left = P[0] / S_left;
+                state[0] += K_left * innovation_x * 0.1;
+            }
+        }
+        
+        if (right_valid && right_dist > 0.1 && right_dist < 50.0) {
+            // Right sensor points in +X direction relative to robot
+            if (sin(robot_theta) > 0.7) { // Pointing roughly east  
+                double wall_constraint = FIELD_X_MAX;
+                double innovation_x = wall_constraint - (robot_x + right_dist * cos(robot_theta));
+                
+                double S_right = P[0] + R_dist;
+                double K_right = P[0] / S_right;
+                state[0] += K_right * innovation_x * 0.1;
+            }
+        }
+        
+        if (back_valid && back_dist > 0.1 && back_dist < 50.0) {
+            // Back sensor points in -Y direction relative to robot
+            if (cos(robot_theta) < -0.7) { // Pointing roughly south
+                double wall_constraint = FIELD_Y_MIN;
+                double innovation_y = wall_constraint - (robot_y - back_dist * cos(robot_theta));
+                
+                double S_back = P[7] + R_dist;
+                double K_back = P[7] / S_back;
+                state[1] += K_back * innovation_y * 0.1;
+            }
+        }
+    }
+    
+    void reset(double x, double y, double theta_deg) {
+        state[0] = x;
+        state[1] = y;
+        state[2] = theta_deg * M_PI / 180.0; // Convert to radians
+        state[3] = 0.0;  // Zero initial velocity
+        state[4] = 0.0;
+        state[5] = 0.0;  // Zero initial angular velocity
+        
+        // Reset covariance to high uncertainty
+        for (int i = 0; i < 36; i++) P[i] = 0.0;
+        P[0] = P[7] = 100.0;    // High position uncertainty
+        P[14] = 10.0;           // Moderate heading uncertainty
+        P[21] = P[28] = 10.0;   // Moderate velocity uncertainty
+        P[35] = 5.0;            // Moderate angular velocity uncertainty
+        
+        initialized = true;
+        last_time = pros::millis();
+    }
+    
+    // Get predicted motion delta based on current velocity estimate
+    void getPredictedMotion(double dt, double& dx, double& dy) {
+        double cos_theta = cos(state[2]);
+        double sin_theta = sin(state[2]);
+        dx = (state[3] * cos_theta - state[4] * sin_theta) * dt;
+        dy = (state[3] * sin_theta + state[4] * cos_theta) * dt;
+    }
+    
+    void getState(double& x, double& y, double& theta_deg, double& vx, double& vy, double& omega) {
+        x = state[0];
+        y = state[1]; 
+        theta_deg = state[2] * 180.0 / M_PI; // Convert to degrees
+        vx = state[3];
+        vy = state[4];
+        omega = state[5];
+    }
+    
+    void getPosition(double& x, double& y, double& theta_deg) {
+        x = state[0];
+        y = state[1];
+        theta_deg = state[2] * 180.0 / M_PI;
+    }
+    
+    bool isInitialized() { return initialized; }
+};
 
 // Sensor weights for weighted sum fusion (can be adjusted based on sensor reliability)
 const std::vector<double> SENSOR_WEIGHTS = {
@@ -43,12 +309,6 @@ const std::vector<double> SENSOR_WEIGHTS = {
     1.0,  // Left sensor weight
     1.0   // Right sensor weight
 };
-
-// Field boundaries (VRC field centered at origin)
-const double FIELD_X_MIN = -FIELD_WIDTH / 2.0;   // -72 inches
-const double FIELD_X_MAX = FIELD_WIDTH / 2.0;    // +72 inches  
-const double FIELD_Y_MIN = -FIELD_LENGTH / 2.0;  // -72 inches
-const double FIELD_Y_MAX = FIELD_LENGTH / 2.0;   // +72 inches
 
 // Robot dimensions (adjust based on your robot)
 const double ROBOT_WIDTH = 11.5;  // Robot width in inches
@@ -107,6 +367,9 @@ private:
     
     lemlib::Pose last_pose;
     bool initialized;
+    
+    // Enhanced Kalman filter for sensor fusion (IMU + Distance Sensors + Odometry)
+    SensorFusionKalmanFilter sensor_fusion_filter;
 
 public:
     // Helper function to keep particles within field bounds
@@ -151,31 +414,79 @@ public:
         }
     }
     
-    // Prediction step: move particles based on odometry
+    // Prediction step: move particles based on sensor fusion with Kalman filter
     void predict(const lemlib::Pose& current_pose) {
         if (!initialized) {
             last_pose = current_pose;
+            sensor_fusion_filter.reset(current_pose.x, current_pose.y, current_pose.theta);
             initialized = true;
             return;
         }
         
-        // Calculate motion delta (position only - ignore theta since using IMU directly)
-        double dx = current_pose.x - last_pose.x;
-        double dy = current_pose.y - last_pose.y;
+        // Calculate time delta
+        uint32_t current_time = pros::millis();
+        static uint32_t last_predict_time = current_time;
+        double dt = (current_time - last_predict_time) / 1000.0; // Convert to seconds
+        last_predict_time = current_time;
         
-        // Get current IMU heading for all particles
-        double current_imu_heading = current_pose.theta * M_PI / 180.0; // Convert to radians
+        // Clamp dt to reasonable bounds
+        dt = std::max(0.001, std::min(dt, 0.2)); // Between 1ms and 200ms
         
-        // Move each particle
+        // Update Kalman filter with prediction step
+        sensor_fusion_filter.predict(dt);
+        
+        // Update with odometry measurements
+        sensor_fusion_filter.updateOdometry(current_pose.x, current_pose.y);
+        
+        // Update with IMU measurements
+        sensor_fusion_filter.updateIMU(current_pose.theta);
+        
+        // Get distance sensor readings for sensor fusion
+        extern pros::Distance front_dist, back_dist, left_dist, right_dist;
+        
+        double front_reading = front_dist.get() / 25.4; // Convert mm to inches
+        double back_reading = back_dist.get() / 25.4;
+        double left_reading = left_dist.get() / 25.4;
+        double right_reading = right_dist.get() / 25.4;
+        
+        // Validate sensor readings
+        bool front_valid = std::isfinite(front_reading) && front_reading > 0.1 && front_reading < 50.0;
+        bool back_valid = std::isfinite(back_reading) && back_reading > 0.1 && back_reading < 50.0;
+        bool left_valid = std::isfinite(left_reading) && left_reading > 0.1 && left_reading < 50.0;
+        bool right_valid = std::isfinite(right_reading) && right_reading > 0.1 && right_reading < 50.0;
+        
+        // Update Kalman filter with distance sensor measurements
+        sensor_fusion_filter.updateDistanceSensors(front_reading, back_reading, left_reading, right_reading,
+                                                   front_valid, back_valid, left_valid, right_valid);
+        
+        // Get motion delta from odometry (for fallback)
+        double odom_dx = current_pose.x - last_pose.x;
+        double odom_dy = current_pose.y - last_pose.y;
+        
+        // Get predicted motion from Kalman filter
+        double kalman_dx, kalman_dy;
+        sensor_fusion_filter.getPredictedMotion(dt, kalman_dx, kalman_dy);
+        
+        // Blend Kalman prediction with odometry (70% Kalman, 30% odometry for better sensor fusion)
+        double blend_factor = 0.7;
+        double final_dx = blend_factor * kalman_dx + (1.0 - blend_factor) * odom_dx;
+        double final_dy = blend_factor * kalman_dy + (1.0 - blend_factor) * odom_dy;
+        
+        // Get improved heading estimate from sensor fusion
+        double fused_x, fused_y, fused_theta;
+        sensor_fusion_filter.getPosition(fused_x, fused_y, fused_theta);
+        double current_fused_heading = fused_theta * M_PI / 180.0; // Convert to radians
+        
+        // Move each particle using improved motion model
         for (auto& particle : particles) {
-            // Add motion noise only to position
-            double noisy_dx = dx + motion_noise(gen);
-            double noisy_dy = dy + motion_noise(gen);
+            // Add motion noise to the blended motion estimate
+            double noisy_dx = final_dx + motion_noise(gen);
+            double noisy_dy = final_dy + motion_noise(gen);
             
             // Update particle position
             particle.x += noisy_dx;
             particle.y += noisy_dy;
-            particle.theta = current_imu_heading; // All particles use reliable IMU heading
+            particle.theta = current_fused_heading; // Use sensor-fused heading
             
             // Keep particles within field bounds
             clampParticleToField(particle);
@@ -648,8 +959,16 @@ public:
     
     // Reset MCL (useful for kidnapped robot problem)
     void reset() {
+        extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
         initializeParticles();
         initialized = false;
+        lemlib::Pose pose = chassis.getPose();
+        sensor_fusion_filter.reset(pose.x, pose.y, pose.theta);
+    }
+    
+    // Get sensor fusion filter statistics for debugging
+    void getSensorFusionState(double& x, double& y, double& theta, double& vx, double& vy, double& omega) {
+        sensor_fusion_filter.getState(x, y, theta, vx, vy, omega);
     }
 };
 
@@ -702,6 +1021,20 @@ double getMCLUncertainty() {
 // Reset MCL
 void resetMCL() {
     mcl_controller.reset();
+}
+
+// Get sensor fusion state for debugging
+void getMCLSensorFusionState(double& x, double& y, double& theta, double& vx, double& vy, double& omega) {
+    mcl_controller.getSensorFusionState(x, y, theta, vx, vy, omega);
+}
+
+// Print sensor fusion debug info to console (useful for tuning)
+void printMCLSensorFusionDebug() {
+    double x, y, theta, vx, vy, omega;
+    getMCLSensorFusionState(x, y, theta, vx, vy, omega);
+    
+    std::printf("MCL Sensor Fusion - Pos:(%.2f,%.2f) Hdg:%.1f° Vel:(%.2f,%.2f) ω:%.2f\n", 
+               x, y, theta, vx, vy, omega);
 }
 
 // Update the chassis pose with the MCL estimated pose
