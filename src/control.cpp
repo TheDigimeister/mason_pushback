@@ -4,11 +4,15 @@
 // MCL (Monte Carlo Localization) Implementation - SIMPLIFIED FOR RELIABLE IMU
 // Uses distance sensors on all four sides of the robot for pose estimation
 // 
-// MODIFICATION: Assumes IMU is very reliable for heading measurements
-// - All particles share the same heading from IMU (no angular uncertainty)
-// - MCL focuses only on position (x, y) estimation
-// - Removes angular noise and theta error calculations
-// - Simplified particle filter with better computational efficiency
+// MODIFICATIONS: 
+// 1. Assumes IMU is very reliable for heading measurements
+//    - All particles share the same heading from IMU (no angular uncertainty)
+//    - MCL focuses only on position (x, y) estimation
+//    - Removes angular noise and theta error calculations
+// 2. Uses WEIGHTED SUM sensor fusion instead of multiplicative
+//    - Robust to individual sensor failures/noise
+//    - One bad sensor doesn't kill entire particle weight
+//    - Averages likelihood across all valid sensors
 // 
 // VRC/LemLib Coordinate System:
 // - X+ = Right (East direction)
@@ -25,12 +29,20 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 1000;
+const int NUM_PARTICLES = 2000;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
-const double BASE_SENSOR_NOISE_STD = 1.5; // Base standard deviation for sensor noise
-const double MOTION_NOISE_STD = 1.0; // Standard deviation for motion noise
+const double BASE_SENSOR_NOISE_STD = 0.5; // Base standard deviation for sensor noise
+const double MOTION_NOISE_STD = 0.5; // Standard deviation for motion noise
 // ANGLE_NOISE_STD removed - using reliable IMU heading directly
+
+// Sensor weights for weighted sum fusion (can be adjusted based on sensor reliability)
+const std::vector<double> SENSOR_WEIGHTS = {
+    1.0,  // Front sensor weight
+    1.0,  // Back sensor weight  
+    1.0,  // Left sensor weight
+    1.0   // Right sensor weight
+};
 
 // Field boundaries (VRC field centered at origin)
 const double FIELD_X_MIN = -FIELD_WIDTH / 2.0;   // -72 inches
@@ -40,13 +52,14 @@ const double FIELD_Y_MAX = FIELD_LENGTH / 2.0;   // +72 inches
 
 // Robot dimensions (adjust based on your robot)
 const double ROBOT_WIDTH = 11.5;  // Robot width in inches
-const double ROBOT_LENGTH = 8.5; // Robot length in inches
+const double ROBOT_LENGTH = 11.0; // Robot length in inches
 
 // Distance from robot center to each sensor (adjust based on your robot)
-const double FRONT_SENSOR_OFFSET = ROBOT_LENGTH / 2.0;
+const double FRONT_SENSOR_OFFSET = ROBOT_LENGTH / 2.0 - 2.5;
 const double BACK_SENSOR_OFFSET = ROBOT_LENGTH / 2.0;
 const double LEFT_SENSOR_OFFSET = ROBOT_WIDTH / 2.0;
 const double RIGHT_SENSOR_OFFSET = ROBOT_WIDTH / 2.0;
+
 
 // VEX Push Back Field Obstacles (from official game manual)
 // Center Goals: 22.6" length, stacked on top of each other at field center
@@ -96,6 +109,12 @@ private:
     bool initialized;
 
 public:
+    // Helper function to keep particles within field bounds
+    void clampParticleToField(Particle& particle) {
+        particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
+        particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
+    }
+    
     MCLController() : gen(rd()), 
                       motion_noise(0.0, MOTION_NOISE_STD),
                       sensor_noise(0.0, BASE_SENSOR_NOISE_STD),
@@ -109,76 +128,31 @@ public:
     void initializeParticles() {
         extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
         
-        // Try to get current odometry pose for intelligent initialization
+        // Get current odometry pose for intelligent initialization
         lemlib::Pose odom_pose = chassis.getPose();
-        bool use_odom_center = std::isfinite(odom_pose.x) && std::isfinite(odom_pose.y) && std::isfinite(odom_pose.theta);
         
-        if (use_odom_center) {
-            std::printf("MCL: Initializing particles around odometry pose (%.2f, %.2f, %.2f°)\n", 
-                   odom_pose.x, odom_pose.y, odom_pose.theta);
+        // std::printf("MCL: Initializing particles around odometry pose (%.2f, %.2f, %.2f°)\n", 
+        //        odom_pose.x, odom_pose.y, odom_pose.theta);
+        
+        // Initialize particles around current odometry position with some spread
+        // Use IMU heading directly - no angular uncertainty
+        std::normal_distribution<double> x_dist(odom_pose.x, 12.0);  // 12 inch standard deviation
+        std::normal_distribution<double> y_dist(odom_pose.y, 12.0);  // 12 inch standard deviation
+        double imu_heading_rad = odom_pose.theta * M_PI / 180.0; // Convert to radians, trust IMU
+        
+        for (auto& particle : particles) {
+            particle.x = x_dist(gen);
+            particle.y = y_dist(gen);
+            particle.theta = imu_heading_rad; // All particles use same IMU heading
+            particle.weight = 1.0 / NUM_PARTICLES;
             
-            // Initialize particles around current odometry position with some spread
-            // Use IMU heading directly - no angular uncertainty
-            std::normal_distribution<double> x_dist(odom_pose.x, 12.0);  // 12 inch standard deviation
-            std::normal_distribution<double> y_dist(odom_pose.y, 12.0);  // 12 inch standard deviation
-            double imu_heading_rad = odom_pose.theta * M_PI / 180.0; // Convert to radians, trust IMU
-            
-            for (auto& particle : particles) {
-                particle.x = x_dist(gen);
-                particle.y = y_dist(gen);
-                particle.theta = imu_heading_rad; // All particles use same IMU heading
-                particle.weight = 1.0 / NUM_PARTICLES;
-                
-                // Keep particles within field bounds
-                particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
-                particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
-                
-                // Validate initialized particle
-                if (!std::isfinite(particle.x) || !std::isfinite(particle.y) || 
-                    !std::isfinite(particle.theta) || !std::isfinite(particle.weight)) {
-                    std::printf("Warning: Invalid particle initialized, resetting to odometry pose\n");
-                    particle.x = odom_pose.x;
-                    particle.y = odom_pose.y;
-                    particle.theta = imu_heading_rad; // Use IMU heading directly
-                    particle.weight = 1.0 / NUM_PARTICLES;
-                }
-            }
-        } else {
-            std::printf("MCL: Odometry pose invalid, using uniform field distribution\n");
-            
-            // Fall back to uniform distribution across entire field
-            // Use current IMU heading (or default 0) for all particles
-            std::uniform_real_distribution<double> x_dist(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
-            std::uniform_real_distribution<double> y_dist(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
-            double default_heading = 0.0; // Default to facing north if no IMU data
-            
-            for (auto& particle : particles) {
-                particle.x = x_dist(gen);
-                particle.y = y_dist(gen);
-                particle.theta = default_heading; // All particles use same heading
-                particle.weight = 1.0 / NUM_PARTICLES;
-                
-                // Validate initialized particle
-                if (!std::isfinite(particle.x) || !std::isfinite(particle.y) || 
-                    !std::isfinite(particle.theta) || !std::isfinite(particle.weight)) {
-                    std::printf("Warning: Invalid particle initialized, resetting to default\n");
-                    particle.x = 0.0;
-                    particle.y = 0.0;
-                    particle.theta = default_heading;
-                    particle.weight = 1.0 / NUM_PARTICLES;
-                }
-            }
+            // Keep particles within field bounds
+            clampParticleToField(particle);
         }
     }
     
     // Prediction step: move particles based on odometry
     void predict(const lemlib::Pose& current_pose) {
-        // Validate input pose
-        if (!std::isfinite(current_pose.x) || !std::isfinite(current_pose.y) || !std::isfinite(current_pose.theta)) {
-            std::printf("Warning: Invalid odometry pose received, skipping prediction step\n");
-            return;
-        }
-        
         if (!initialized) {
             last_pose = current_pose;
             initialized = true;
@@ -188,12 +162,6 @@ public:
         // Calculate motion delta (position only - ignore theta since using IMU directly)
         double dx = current_pose.x - last_pose.x;
         double dy = current_pose.y - last_pose.y;
-        
-        // Validate motion deltas
-        if (!std::isfinite(dx) || !std::isfinite(dy)) {
-            std::printf("Warning: Invalid motion delta calculated, skipping prediction\n");
-            return;
-        }
         
         // Get current IMU heading for all particles
         double current_imu_heading = current_pose.theta * M_PI / 180.0; // Convert to radians
@@ -210,11 +178,31 @@ public:
             particle.theta = current_imu_heading; // All particles use reliable IMU heading
             
             // Keep particles within field bounds
-            particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
-            particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
+            clampParticleToField(particle);
         }
         
         last_pose = current_pose;
+    }
+    
+    // Helper function to check ray intersection with a single wall
+    double rayIntersectWall(double sensor_x, double sensor_y, double ray_dx, double ray_dy,
+                           double wall_pos, bool is_vertical, double wall_min, double wall_max) {
+        const double EPSILON = 1e-10;
+        
+        if (is_vertical) { // Vertical wall (constant X)
+            if (std::abs(ray_dx) <= EPSILON) return std::numeric_limits<double>::max();
+            double t = (wall_pos - sensor_x) / ray_dx;
+            if (t <= 0.0) return std::numeric_limits<double>::max(); // Behind sensor
+            double intersect_y = sensor_y + t * ray_dy;
+            if (intersect_y >= wall_min && intersect_y <= wall_max) return t;
+        } else { // Horizontal wall (constant Y)
+            if (std::abs(ray_dy) <= EPSILON) return std::numeric_limits<double>::max();
+            double t = (wall_pos - sensor_y) / ray_dy;
+            if (t <= 0.0) return std::numeric_limits<double>::max(); // Behind sensor
+            double intersect_x = sensor_x + t * ray_dx;
+            if (intersect_x >= wall_min && intersect_x <= wall_max) return t;
+        }
+        return std::numeric_limits<double>::max();
     }
     
     // Helper function to check ray intersection with a rectangular obstacle
@@ -338,97 +326,48 @@ public:
         }
         
         // Perform raycast to find intersection with field boundaries
-        // Ray equation: P(t) = sensor_position + t * ray_direction
-        // Wall intersection: solve for t where ray intersects each wall boundary
-        // Choose the minimum positive t (closest wall in sensor direction)
         double min_distance = std::numeric_limits<double>::max();
         
-        // Check intersection with each wall (only if ray is pointing toward the wall)
-        // Add small epsilon to avoid division by zero
-        const double EPSILON = 1e-10;
+        // Check intersection with all four walls
+        struct {double pos; bool vertical; double min_coord; double max_coord;} walls[] = {
+            {FIELD_Y_MAX, false, FIELD_X_MIN, FIELD_X_MAX}, // North wall
+            {FIELD_Y_MIN, false, FIELD_X_MIN, FIELD_X_MAX}, // South wall  
+            {FIELD_X_MAX, true, FIELD_Y_MIN, FIELD_Y_MAX},  // East wall
+            {FIELD_X_MIN, true, FIELD_Y_MIN, FIELD_Y_MAX}   // West wall
+        };
         
-        // North wall (Y = FIELD_Y_MAX)
-        if (ray_dy > EPSILON) {  // Ray pointing north (avoid division by zero)
-            double t = (FIELD_Y_MAX - sensor_y) / ray_dy;
-            if (t > 0.0) {  // Intersection is in front of sensor
-                double intersect_x = sensor_x + t * ray_dx;
-                if (intersect_x >= FIELD_X_MIN && intersect_x <= FIELD_X_MAX) {
-                    min_distance = std::min(min_distance, t);
-                }
-            }
-        }
-        
-        // South wall (Y = FIELD_Y_MIN)
-        if (ray_dy < -EPSILON) {  // Ray pointing south (avoid division by zero)
-            double t = (FIELD_Y_MIN - sensor_y) / ray_dy;
-            if (t > 0.0) {  // Intersection is in front of sensor
-                double intersect_x = sensor_x + t * ray_dx;
-                if (intersect_x >= FIELD_X_MIN && intersect_x <= FIELD_X_MAX) {
-                    min_distance = std::min(min_distance, t);
-                }
-            }
-        }
-        
-        // East wall (X = FIELD_X_MAX)
-        if (ray_dx > EPSILON) {  // Ray pointing east (avoid division by zero)
-            double t = (FIELD_X_MAX - sensor_x) / ray_dx;
-            if (t > 0.0) {  // Intersection is in front of sensor
-                double intersect_y = sensor_y + t * ray_dy;
-                if (intersect_y >= FIELD_Y_MIN && intersect_y <= FIELD_Y_MAX) {
-                    min_distance = std::min(min_distance, t);
-                }
-            }
-        }
-        
-        // West wall (X = FIELD_X_MIN)
-        if (ray_dx < -EPSILON) {  // Ray pointing west (avoid division by zero)
-            double t = (FIELD_X_MIN - sensor_x) / ray_dx;
-            if (t > 0.0) {  // Intersection is in front of sensor
-                double intersect_y = sensor_y + t * ray_dy;
-                if (intersect_y >= FIELD_Y_MIN && intersect_y <= FIELD_Y_MAX) {
-                    min_distance = std::min(min_distance, t);
-                }
+        for (const auto& wall : walls) {
+            double wall_dist = rayIntersectWall(sensor_x, sensor_y, ray_dx, ray_dy,
+                                               wall.pos, wall.vertical, wall.min_coord, wall.max_coord);
+            if (wall_dist < min_distance) {
+                min_distance = wall_dist;
             }
         }
         
         // Check intersections with field obstacles (Center Goals, Loaders)
+        std::vector<std::pair<double, double>> obstacles = {
+            {CENTER_GOAL_X, CENTER_GOAL_Y},    // Center Goals
+            {RED_LOADER_1_X, RED_LOADER_1_Y},  // Red Loaders
+            {RED_LOADER_2_X, RED_LOADER_2_Y},
+            {BLUE_LOADER_1_X, BLUE_LOADER_1_Y}, // Blue Loaders  
+            {BLUE_LOADER_2_X, BLUE_LOADER_2_Y}
+        };
         
-        // Center Goals - Treated as single stacked object at field center
-        double center_goal_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
-                                                       CENTER_GOAL_X, CENTER_GOAL_Y,
-                                                       CENTER_GOAL_WIDTH, CENTER_GOAL_LENGTH);
-        if (center_goal_dist < min_distance) {
-            min_distance = center_goal_dist;
-        }
+        std::vector<std::pair<double, double>> obstacle_sizes = {
+            {CENTER_GOAL_WIDTH, CENTER_GOAL_LENGTH},
+            {LOADER_WIDTH, LOADER_DEPTH},
+            {LOADER_WIDTH, LOADER_DEPTH},
+            {LOADER_WIDTH, LOADER_DEPTH},
+            {LOADER_WIDTH, LOADER_DEPTH}
+        };
         
-        // Loaders - Red Alliance
-        double red_loader_1_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
-                                                        RED_LOADER_1_X, RED_LOADER_1_Y,
-                                                        LOADER_WIDTH, LOADER_DEPTH);
-        if (red_loader_1_dist < min_distance) {
-            min_distance = red_loader_1_dist;
-        }
-        
-        double red_loader_2_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
-                                                        RED_LOADER_2_X, RED_LOADER_2_Y,
-                                                        LOADER_WIDTH, LOADER_DEPTH);
-        if (red_loader_2_dist < min_distance) {
-            min_distance = red_loader_2_dist;
-        }
-        
-        // Loaders - Blue Alliance
-        double blue_loader_1_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
-                                                         BLUE_LOADER_1_X, BLUE_LOADER_1_Y,
-                                                         LOADER_WIDTH, LOADER_DEPTH);
-        if (blue_loader_1_dist < min_distance) {
-            min_distance = blue_loader_1_dist;
-        }
-        
-        double blue_loader_2_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
-                                                         BLUE_LOADER_2_X, BLUE_LOADER_2_Y,
-                                                         LOADER_WIDTH, LOADER_DEPTH);
-        if (blue_loader_2_dist < min_distance) {
-            min_distance = blue_loader_2_dist;
+        for (size_t i = 0; i < obstacles.size(); i++) {
+            double obstacle_dist = rayIntersectRectangle(sensor_x, sensor_y, ray_dx, ray_dy,
+                                                        obstacles[i].first, obstacles[i].second,
+                                                        obstacle_sizes[i].first, obstacle_sizes[i].second);
+            if (obstacle_dist < min_distance) {
+                min_distance = obstacle_dist;
+            }
         }
         
         // Return the closest intersection distance (or reasonable default if no valid intersection)
@@ -442,39 +381,34 @@ public:
         return std::max(0.1, std::min(min_distance, 42.0)); // Clamp between 0.1 and 200 inches
     }
     
+    // Helper function to process and validate a single sensor reading
+    struct SensorReading {
+        double value;
+        bool is_valid;
+        bool is_open_space;
+        
+        SensorReading(double raw_reading) {
+            // Convert from mm to inches and validate
+            value = std::isfinite(raw_reading) ? raw_reading / 25.4 : -1;
+            is_valid = (value > 0 && value < 42);
+            is_open_space = (value >= 42 && std::isfinite(value));
+        }
+    };
+    
     // Update step: weight particles based on sensor measurements
     void update() {
-        // Get sensor readings (convert from mm to inches)
-        double front_reading = front_dist.get() / 25.4;
-        double back_reading = back_dist.get() / 25.4;
-        double left_reading = left_dist.get() / 25.4;
-        double right_reading = right_dist.get() / 25.4;
-        
-        // Validate sensor readings for infinity/NaN
-        if (!std::isfinite(front_reading)) front_reading = -1;
-        if (!std::isfinite(back_reading)) back_reading = -1;
-        if (!std::isfinite(left_reading)) left_reading = -1;
-        if (!std::isfinite(right_reading)) right_reading = -1;
-        
-        // Check sensor reading categories
-        std::vector<double> readings = {front_reading, back_reading, left_reading, right_reading};
-        std::vector<bool> sensor_valid = {
-            front_reading > 0 && front_reading < 42,  // Valid close-range readings
-            back_reading > 0 && back_reading < 42,
-            left_reading > 0 && left_reading < 42,
-            right_reading > 0 && right_reading < 42
-        };
-        std::vector<bool> sensor_open_space = {
-            front_reading >= 42 && std::isfinite(front_reading),  // High readings indicating open space
-            back_reading >= 42 && std::isfinite(back_reading),
-            left_reading >= 42 && std::isfinite(left_reading),
-            right_reading >= 42 && std::isfinite(right_reading)
+        // Get and process sensor readings
+        std::vector<SensorReading> sensors = {
+            SensorReading(front_dist.get()),
+            SensorReading(back_dist.get()),
+            SensorReading(left_dist.get()),
+            SensorReading(right_dist.get())
         };
         
         // Count sensors with usable information (either valid close readings or open space readings)
         int usable_sensor_count = 0;
-        for (int i = 0; i < 4; i++) {
-            if (sensor_valid[i] || sensor_open_space[i]) usable_sensor_count++;
+        for (const auto& sensor : sensors) {
+            if (sensor.is_valid || sensor.is_open_space) usable_sensor_count++;
         }
         
         // Skip update only if NO sensors provide usable information
@@ -484,39 +418,51 @@ public:
         
         double total_weight = 0.0;
         
-        // Update particle weights based on multiplicative sensor likelihood
+        // Update particle weights based on weighted sum sensor likelihood
         for (auto& particle : particles) {
-            double weight = 1.0; // Start with neutral weight for multiplication
+            double weight_sum = 0.0; // Start with zero for addition
+            double total_sensor_weight = 0.0; // Track total weight for normalization
             
-            // Calculate likelihood for each sensor (multiplicative approach)
+            // Calculate likelihood for each sensor (additive approach)
             for (int i = 0; i < 4; i++) {
-                if (sensor_valid[i]) {
+                // Use configurable sensor weights (can adjust for sensor reliability)
+                double sensor_weight = (i < SENSOR_WEIGHTS.size()) ? SENSOR_WEIGHTS[i] : 1.0;
+                
+                if (sensors[i].is_valid) {
                     // Use actual sensor reading for valid close-range sensors
                     double expected = getExpectedDistance(particle, i);
-                    double error = readings[i] - expected;
+                    double error = sensors[i].value - expected;
                     
                     // Gaussian likelihood function using base sensor noise
                     double likelihood = exp(-0.5 * (error * error) / (BASE_SENSOR_NOISE_STD * BASE_SENSOR_NOISE_STD));
-                    weight *= likelihood; // Multiplicative weighting - all sensors must agree
-                } else if (sensor_open_space[i]) {
+                    weight_sum += sensor_weight * likelihood; // Additive weighting - robust to single bad sensor
+                    total_sensor_weight += sensor_weight;
+                } else if (sensors[i].is_open_space) {
                     // High readings indicate open space - give high likelihood if particle expects open space
                     double expected = getExpectedDistance(particle, i);
                     
                     if (expected >= 42.0) {
                         // Particle expects open space and sensor sees open space - high likelihood
-                        weight *= 0.95; // High confidence match
+                        weight_sum += sensor_weight * 0.95; // High confidence match
                     } else {
                         // Particle expects obstacle but sensor sees open space - low likelihood
-                        weight *= 0.1; // Strong disagreement penalty
+                        weight_sum += sensor_weight * 0.1; // Disagreement penalty (but not fatal)
                     }
+                    total_sensor_weight += sensor_weight;
                 } else {
-                    // Invalid sensors (≤0 or non-finite), apply neutral weight (no information)
-                    weight *= 1.0; // Neutral - no information from this sensor
+                    // Invalid sensors (≤0 or non-finite) - skip this sensor entirely
+                    // Don't add to weight_sum or total_sensor_weight
                 }
             }
             
-            particle.weight = weight;
-            total_weight += weight;
+            // Normalize by total sensor weight to get average likelihood
+            if (total_sensor_weight > 0.0) {
+                particle.weight = weight_sum / total_sensor_weight;
+            } else {
+                // No valid sensors - set neutral weight
+                particle.weight = 0.5; // Neutral likelihood when no sensor information
+            }
+            total_weight += particle.weight;
         }
         
         // Normalize weights
@@ -526,7 +472,7 @@ public:
             }
         } else {
             // If total weight is too small or zero, reset all weights to uniform
-            std::printf("Warning: MCL total weight too small (%.2e), resetting to uniform distribution\n", total_weight);
+            // std::printf("Warning: MCL total weight too small (%.2e), resetting to uniform distribution\n", total_weight);
             for (auto& particle : particles) {
                 particle.weight = 1.0 / NUM_PARTICLES;
             }
@@ -534,14 +480,13 @@ public:
     }
     
     // Resample particles based on weights (hybrid: 80% systematic resampling, 20% random)
-    void resample() {
-        extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
+    void resample(const lemlib::Pose& current_pose) {
         
         std::vector<Particle> new_particles;
         new_particles.reserve(NUM_PARTICLES);
         
         // Calculate how many particles for each method
-        int resampled_count = (NUM_PARTICLES)* 0.9;      // 80% from systematic resampling
+        int resampled_count = (NUM_PARTICLES * 95) / 100;      // 80% from systematic resampling
         int random_count = NUM_PARTICLES - resampled_count;  // 20% random (handles rounding)
         
         // Part 1: Systematic resampling for 80% of particles
@@ -570,14 +515,15 @@ public:
         
         // Part 2: Generate random particles for remaining 20%
         // Get current estimated pose for intelligent random particle generation
-        lemlib::Pose estimated_pose = getEstimatedPose();
-        bool use_pose_guidance = std::isfinite(estimated_pose.x) && std::isfinite(estimated_pose.y) && std::isfinite(estimated_pose.theta);
+        lemlib::Pose estimated_pose = getEstimatedPose(current_pose);
+        // bool use_pose_guidance = std::isfinite(estimated_pose.x) && std::isfinite(estimated_pose.y) && std::isfinite(estimated_pose.theta);
         
+        bool use_pose_guidance = false;
         if (use_pose_guidance) {
             // Generate random particles around current estimated pose (with wider spread than initialization)
             // Use IMU heading directly - no angular uncertainty
-            std::normal_distribution<double> x_dist(estimated_pose.x, 20.0);  // 20 inch standard deviation
-            std::normal_distribution<double> y_dist(estimated_pose.y, 20.0);  // 20 inch standard deviation
+            std::normal_distribution<double> x_dist(estimated_pose.x, 12.0);  // 20 inch standard deviation
+            std::normal_distribution<double> y_dist(estimated_pose.y, 12.0);  // 20 inch standard deviation
             double current_imu_heading = estimated_pose.theta * M_PI / 180.0; // Trust IMU heading
             
             for (int m = 0; m < random_count; m++) {
@@ -588,141 +534,81 @@ public:
                 random_particle.weight = 1.0 / NUM_PARTICLES;
                 
                 // Keep particles within field bounds
-                random_particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(random_particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
-                random_particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(random_particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
+                clampParticleToField(random_particle);
                 
                 // Validate particle before adding
                 if (std::isfinite(random_particle.x) && std::isfinite(random_particle.y) && 
                     std::isfinite(random_particle.theta) && std::isfinite(random_particle.weight)) {
                     new_particles.push_back(random_particle);
                 } else {
-                    // Fallback to odometry-centered distribution if guided generation fails
-                    lemlib::Pose odom_pose = chassis.getPose();
-                    if (std::isfinite(odom_pose.x) && std::isfinite(odom_pose.y) && std::isfinite(odom_pose.theta)) {
-                        std::normal_distribution<double> x_odom(odom_pose.x, 15.0);  // 15 inch std dev around odom
-                        std::normal_distribution<double> y_odom(odom_pose.y, 15.0);
-                        std::normal_distribution<double> theta_odom(odom_pose.theta * M_PI / 180.0, M_PI/4); // ±45° std dev
-                        
-                        random_particle.x = x_odom(gen);
-                        random_particle.y = y_odom(gen);
-                        random_particle.theta = theta_odom(gen);
-                        
-                        // Keep within bounds
-                        random_particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(random_particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
-                        random_particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(random_particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
-                        while (random_particle.theta > M_PI) random_particle.theta -= 2 * M_PI;
-                        while (random_particle.theta < -M_PI) random_particle.theta += 2 * M_PI;
-                    } else {
-                        // Ultimate fallback: uniform distribution if both MCL and odom fail
-                        std::uniform_real_distribution<double> x_uniform(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
-                        std::uniform_real_distribution<double> y_uniform(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
-                        std::uniform_real_distribution<double> theta_uniform(-M_PI, M_PI);
-                        
-                        random_particle.x = x_uniform(gen);
-                        random_particle.y = y_uniform(gen);
-                        random_particle.theta = theta_uniform(gen);
-                    }
+                    // Use odometry-centered distribution if guided generation fails
+                    std::normal_distribution<double> x_odom(current_pose.x, 12.0);  // 15 inch std dev around odom
+                    std::normal_distribution<double> y_odom(current_pose.y, 12.0);
+                    double imu_heading_rad = current_pose.theta * M_PI / 180.0; // Use IMU heading directly
+                    
+                    random_particle.x = x_odom(gen);
+                    random_particle.y = y_odom(gen);
+                    random_particle.theta = imu_heading_rad; // Use IMU heading directly
+                    
+                    // Keep within bounds
+                    clampParticleToField(random_particle);
+                    
                     random_particle.weight = 1.0 / NUM_PARTICLES;
                     new_particles.push_back(random_particle);
                 }
             }
         } else {
-            // Fallback: odometry-centered random distribution when MCL pose estimate is invalid
-            lemlib::Pose odom_pose = chassis.getPose();
-            if (std::isfinite(odom_pose.x) && std::isfinite(odom_pose.y) && std::isfinite(odom_pose.theta)) {
-                // Generate particles around odometry pose
-                // Use IMU heading directly - no angular uncertainty
-                std::normal_distribution<double> x_dist(odom_pose.x, 15.0);  // 15 inch standard deviation
-                std::normal_distribution<double> y_dist(odom_pose.y, 15.0);  // 15 inch standard deviation
-                double current_imu_heading = odom_pose.theta * M_PI / 180.0; // Trust IMU heading
+            // Use odometry-centered random distribution when MCL pose estimate is invalid
+            // Generate particles around odometry pose
+            // Use IMU heading directly - no angular uncertainty
+            std::normal_distribution<double> x_dist(current_pose.x, 12.0);  // 15 inch standard deviation
+            std::normal_distribution<double> y_dist(current_pose.y, 12.0);  // 15 inch standard deviation
+            double current_imu_heading = current_pose.theta * M_PI / 180.0; // Trust IMU heading
+            
+            for (int m = 0; m < random_count; m++) {
+                Particle random_particle;
+                random_particle.x = x_dist(gen);
+                random_particle.y = y_dist(gen);
+                random_particle.theta = current_imu_heading; // All particles use same IMU heading
+                random_particle.weight = 1.0 / NUM_PARTICLES;
                 
-                for (int m = 0; m < random_count; m++) {
-                    Particle random_particle;
-                    random_particle.x = x_dist(gen);
-                    random_particle.y = y_dist(gen);
-                    random_particle.theta = current_imu_heading; // All particles use same IMU heading
-                    random_particle.weight = 1.0 / NUM_PARTICLES;
-                    
-                    // Keep particles within field bounds
-                    random_particle.x = std::max(FIELD_X_MIN + ROBOT_WIDTH/2, std::min(random_particle.x, FIELD_X_MAX - ROBOT_WIDTH/2));
-                    random_particle.y = std::max(FIELD_Y_MIN + ROBOT_LENGTH/2, std::min(random_particle.y, FIELD_Y_MAX - ROBOT_LENGTH/2));
-                    
-                    new_particles.push_back(random_particle);
-                }
-            } else {
-                // Ultimate fallback: uniform random distribution if odometry is also invalid
-                // Use default heading (north) for all particles
-                std::uniform_real_distribution<double> x_dist(FIELD_X_MIN + ROBOT_WIDTH/2, FIELD_X_MAX - ROBOT_WIDTH/2);
-                std::uniform_real_distribution<double> y_dist(FIELD_Y_MIN + ROBOT_LENGTH/2, FIELD_Y_MAX - ROBOT_LENGTH/2);
-                double default_heading = 0.0; // Default to facing north
+                // Keep particles within field bounds
+                clampParticleToField(random_particle);
                 
-                for (int m = 0; m < random_count; m++) {
-                    Particle random_particle;
-                    random_particle.x = x_dist(gen);
-                    random_particle.y = y_dist(gen);
-                    random_particle.theta = default_heading; // All particles use same default heading
-                    random_particle.weight = 1.0 / NUM_PARTICLES;
-                    new_particles.push_back(random_particle);
-                }
+                new_particles.push_back(random_particle);
             }
         }
         
         particles = std::move(new_particles);
     }
     
-    // Get estimated pose (weighted average of particles for position, IMU for heading)
-    lemlib::Pose getEstimatedPose() {
+    // Overloaded version that calls chassis.getPose() for backward compatibility
+    void resample() {
         extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
-        
+        resample(chassis.getPose());
+    }
+    
+    // Get estimated pose (weighted average of particles for position, IMU for heading)
+    lemlib::Pose getEstimatedPose(const lemlib::Pose& current_pose) {
         double x_sum = 0.0, y_sum = 0.0;
         double weight_sum = 0.0;
         
         for (const auto& particle : particles) {
-            // Validate particle values before using them
-            if (!std::isfinite(particle.x) || !std::isfinite(particle.y) || 
-                !std::isfinite(particle.theta) || !std::isfinite(particle.weight)) {
-                std::printf("Warning: Invalid particle detected: x=%.3f, y=%.3f, theta=%.3f, weight=%.3f\n",
-                       particle.x, particle.y, particle.theta, particle.weight);
-                continue; // Skip this particle
-            }
-            
             x_sum += particle.x * particle.weight;
             y_sum += particle.y * particle.weight;
             weight_sum += particle.weight;
         }
         
-        // Get current odometry pose as fallback
-        lemlib::Pose odom_pose = chassis.getPose();
+        // Use IMU heading directly (already in degrees from current pose)
+        double estimated_theta = current_pose.theta; 
         
-        // Validate odometry pose and provide ultimate fallback
-        if (!std::isfinite(odom_pose.x) || !std::isfinite(odom_pose.y) || !std::isfinite(odom_pose.theta)) {
-            std::printf("Warning: Odometry pose is also invalid, using last known pose\n");
-            odom_pose = last_pose; // Use last known good pose
-            
-            // If even last_pose is invalid, use origin
-            if (!std::isfinite(odom_pose.x) || !std::isfinite(odom_pose.y) || !std::isfinite(odom_pose.theta)) {
-                odom_pose = lemlib::Pose(0.0, 0.0, 0.0);
-            }
-        }
-        
-        // Validate results
-        if (weight_sum < 1e-10) {
-            std::printf("Warning: MCL weight sum too small, returning odometry pose (%.2f, %.2f, %.2f)\n", 
-                   odom_pose.x, odom_pose.y, odom_pose.theta);
-            return odom_pose;
-        }
-        
-        // Use IMU heading directly (already in degrees from odometry)
-        double estimated_theta = odom_pose.theta; 
-        
-        // Validate final result
-        if (!std::isfinite(x_sum) || !std::isfinite(y_sum) || !std::isfinite(estimated_theta)) {
-            std::printf("Warning: MCL pose calculation resulted in non-finite values, returning odometry pose (%.2f, %.2f, %.2f)\n",
-                   odom_pose.x, odom_pose.y, odom_pose.theta);
-            return odom_pose;
-        }
-        
-        return lemlib::Pose(x_sum, y_sum, estimated_theta); // Use IMU heading directly
+        return lemlib::Pose(x_sum / weight_sum, y_sum / weight_sum, estimated_theta);
+    }
+    
+    // Overloaded version that calls chassis.getPose() for backward compatibility
+    lemlib::Pose getEstimatedPose() {
+        extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
+        return getEstimatedPose(chassis.getPose());
     }
     
     // Calculate pose error in global coordinates
@@ -756,7 +642,7 @@ public:
     }
     
     // Check if localization is converged
-    bool isConverged(double threshold = 5.0) {
+    bool isConverged(double threshold = 6.0) {
         return getParticleSpread() < threshold;
     }
     
@@ -771,10 +657,10 @@ public:
 MCLController mcl_controller;
 
 // Main MCL update function to be called periodically
-void updateMCL() {
+lemlib::Pose updateMCL() {
     extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
     
-    // Get current odometry pose (this might include previous MCL corrections)
+    // Get current odometry pose ONCE per MCL loop (optimization: shared across predict/update/resample steps)
     lemlib::Pose current_pose = chassis.getPose();
     
     // Prediction step (uses odometry deltas for particle movement)
@@ -783,8 +669,11 @@ void updateMCL() {
     // Update step (measurement update using distance sensors)
     mcl_controller.update();
     
-    // Resample particles
-    mcl_controller.resample();
+    // Resample particles (uses the same pose to avoid redundant chassis.getPose() calls)
+    mcl_controller.resample(current_pose);
+    
+    // Return the pose so it can be shared with other functions
+    return current_pose;
     
     // Note: We don't automatically update chassis pose here to avoid circular dependency
     // Use updateChassisPoseFromMCL() when you want to apply MCL corrections
@@ -816,8 +705,7 @@ void resetMCL() {
 }
 
 // Update the chassis pose with the MCL estimated pose
-void updateChassisPoseFromMCL(bool force_update) {
-    extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
+void updateChassisPoseFromMCL(bool force_update, const lemlib::Pose& current_pose) {
     extern pros::Controller master; // Reference to master controller from main.cpp
     
     // Only update if MCL has converged or if forced, and limit frequency
@@ -830,8 +718,7 @@ void updateChassisPoseFromMCL(bool force_update) {
     
     if ((force_update || (mcl_controller.isConverged() && time_to_update))) { // Only if uncertainty is low
         
-        lemlib::Pose mcl_pose = mcl_controller.getEstimatedPose();
-        lemlib::Pose current_pose = chassis.getPose();
+        lemlib::Pose mcl_pose = mcl_controller.getEstimatedPose(current_pose);
         
         // Calculate the correction needed
         lemlib::Pose error = mcl_controller.calculateGlobalError(current_pose);
@@ -839,11 +726,12 @@ void updateChassisPoseFromMCL(bool force_update) {
         // Only apply correction if error is significant but not too large
         double position_error = sqrt(error.x * error.x + error.y * error.y);
         if (position_error > 2.0 && position_error < 24.0) { // Between 2-24 inches
+            extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
             chassis.setPose(mcl_pose);
             last_update_time = current_time;
             
-            std::printf("MCL Correction Applied: Pos Error=%.2f, Angle Error=%.2f\n", 
-                   position_error, error.theta);
+            // std::printf("MCL Correction Applied: Pos Error=%.2f, Angle Error=%.2f\n", 
+                //    position_error, error.theta);
             
             // Display MCL convergence and pose update on controller screen
             // Update controller screen every 500ms to avoid overwhelming the display
@@ -863,7 +751,7 @@ void updateChassisPoseFromMCL(bool force_update) {
     
     // Also display convergence status periodically even when not updating pose
     if (mcl_controller.isConverged() && (current_time - last_controller_update_time) > 2000) {
-        lemlib::Pose mcl_pose = mcl_controller.getEstimatedPose();
+        lemlib::Pose mcl_pose = mcl_controller.getEstimatedPose(current_pose);
         double uncertainty = mcl_controller.getParticleSpread();
         
         master.clear();
@@ -890,14 +778,21 @@ void updateChassisPoseFromMCL(bool force_update) {
     }
 }
 
+// Overloaded version that calls chassis.getPose() for backward compatibility
+void updateChassisPoseFromMCL(bool force_update) {
+    extern lemlib::Chassis chassis; // Reference to chassis from drive.cpp
+    updateChassisPoseFromMCL(force_update, chassis.getPose());
+}
+
 // MCL task function to run in background
 void mclTask(void* param) {
     while (true) {
-        updateMCL();
+        // Get current pose and update MCL - share the pose to avoid redundant chassis.getPose() calls
+        lemlib::Pose current_pose = updateMCL();
         
         // Optionally update chassis pose periodically when converged
         // Uncomment the line below to enable automatic chassis pose updates
-        updateChassisPoseFromMCL(false);
+        updateChassisPoseFromMCL(false, current_pose);
         
         pros::delay(50); // Update at 20Hz
     }

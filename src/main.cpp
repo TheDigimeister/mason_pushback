@@ -64,11 +64,11 @@ void initialize() {
 	while(inertial.is_calibrating()){
 		pros::delay(50);
 	}
-	chassis.setPose(-36, -24, 0);
+	chassis.setPose(-36, 24, 180);
 	initializeMCL();
 
 	pros::Task mcl_resets([=](){
-		pros::delay(30000);
+		pros::delay(10000);
 		resetMCL();
 	});
 
@@ -76,8 +76,8 @@ void initialize() {
 		while (true) {
 			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
 			if (true) {
-				// std::cout << std::endl;
-				// std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
+				std::cout << std::endl;
+				std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", getMCLPose().x, getMCLPose().y, getMCLPose().theta);
 				pros::delay(100);
 			}
 		}

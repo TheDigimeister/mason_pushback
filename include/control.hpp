@@ -21,8 +21,9 @@ void initializeMCL();
 /**
  * Update the MCL system manually
  * This is automatically called by the MCL task, but can be called manually if needed
+ * @return The current chassis pose that was used in this MCL loop
  */
-void updateMCL();
+lemlib::Pose updateMCL();
 
 /**
  * Get the current estimated pose from MCL
