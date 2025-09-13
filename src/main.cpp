@@ -26,7 +26,7 @@ bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-int auton_num = 1;
+int auton_num = 10;
 
 /**
  * A callback function for LLEMU's center button.
@@ -127,6 +127,8 @@ void autonomous() {
 	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 	right_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 
+	#pragma region auton
+
 	if (auton_num == 0) {
 
 		odom.set_value(true);
@@ -157,7 +159,7 @@ void autonomous() {
 		odom.set_value(false);
 		chassis.setPose(-46.847,-14.278,90);
 
-		// Path
+		// 9-ball low goal side
 
 		lower.move(127);
 
@@ -229,7 +231,7 @@ void autonomous() {
 		odom.set_value(false);
 		chassis.setPose(-46.847,14.278,90);
 
-		// Path
+		// 9-ball middle goal side
 
 		lower.move(127);
 
@@ -294,7 +296,7 @@ void autonomous() {
 		odom.set_value(false);
 		chassis.setPose(-46.847,14.278,90);
 
-		// Path
+		// solo AWP middle goal
 
 		lower.move(127);
 
@@ -363,7 +365,7 @@ void autonomous() {
 		odom.set_value(false);
 		chassis.setPose(-46.847,-14.278,90);
 
-		// Path
+		// solo AWP low goal
 
 		lower.move(127);
 
@@ -603,9 +605,28 @@ void autonomous() {
 
 
 	}
+	else if(auton_num == 10) {
+		// Path
+
+	chassis.setPose(-51.47, 8.164, 90);
+
+	// Path
+
+	chassis.moveToPoint(-22.923, 21.952, 5000, {.maxSpeed = 70}); // collect 3 balls
+	chassis.moveToPoint(-6.416, 39.624, 5000, {.maxSpeed = 70}); // under the bridge
+	chassis.moveToPoint(-9.329, 26.807, 5000, {.forwards = false, .maxSpeed = 70}); // back up
+	chassis.moveToPoint(-39.818, 32.633, 5000, {.maxSpeed = 70}); //going forward
+	chassis.moveToPoint(-47.198, 45.838, 5000, {.maxSpeed = 70}); // position
+	chassis.moveToPoint(-57.49, 46.227, 5000, {.maxSpeed = 70}); // go to matchloader
+	chassis.moveToPoint(-30.303, 47.004, 5000,{.forwards = false, .maxSpeed = 70}); // score long goal
+
+
+		}
 
 	// Angular PID Test
 	else if (auton_num == 6) {
+	#pragma region testing
+
 		chassis.setPose(0,0,0);
 		
 		// chassis.angularPID.kI = 0.0;
@@ -718,6 +739,8 @@ void autonomous() {
  * operator control task will be stopped. Re-enabling the robot will restart the
  * task, not resume it from where it left off.
  */
+
+ #pragma region opcontrol
 void opcontrol() {
 
 	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
