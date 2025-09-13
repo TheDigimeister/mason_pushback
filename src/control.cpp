@@ -677,7 +677,7 @@ void mclTask(void* param) {
         
         // Optionally update chassis pose periodically when converged
         // Uncomment the line below to enable automatic chassis pose updates
-        updateChassisPoseFromMCL(false, current_pose);
+        // updateChassisPoseFromMCL(false, current_pose);
         
         pros::delay(50); // Update at 20Hz
     }
