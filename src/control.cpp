@@ -10,10 +10,12 @@
 //    - All particles share the same heading from IMU (no angular uncertainty)
 //    - MCL focuses only on position (x, y) estimation
 //    - Removes angular noise and theta error calculations
-// 2. Uses WEIGHTED SUM sensor fusion instead of multiplicative
+// 2. Uses CONFIDENCE-WEIGHTED SUM sensor fusion with LOG-LIKELIHOOD
+//    - Uses sensor confidence (0-63) from get_confidence() to weight contributions
+//    - Adaptive noise model: lower confidence = higher effective noise
+//    - No hard sensor range limits - uses raw raycast distances  
 //    - Robust to individual sensor failures/noise
-//    - One bad sensor doesn't kill entire particle weight
-//    - Averages likelihood across all valid sensors
+//    - Converts back to linear space for final particle weights
 // 
 // VRC/LemLib Coordinate System:
 // - X+ = Right (East direction)
@@ -30,11 +32,11 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 1000;
+const int NUM_PARTICLES = 100;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
 const double BASE_SENSOR_NOISE_STD = 0.5; // Base standard deviation for sensor noise
-const double MOTION_NOISE_STD = 0.5; // Standard deviation for motion noise
+const double MOTION_NOISE_STD = 1.0; // Standard deviation for motion noise
 // ANGLE_NOISE_STD removed - using reliable IMU heading directly
 
 // Sensor weights for weighted sum fusion (can be adjusted based on sensor reliability)
@@ -262,38 +264,42 @@ public:
             return 50.0; // Default to 50 inches (reasonable sensor reading)
         }
         
-        // Clamp the result to reasonable sensor range
-        return std::max(0.1, std::min(min_distance, 42.0)); // Clamp between 0.1 and 200 inches
+        // No clamping - return raw raycast distance
+        return std::max(0.1, min_distance); // Only prevent negative/zero distances
     }
     
     // Helper function to process and validate a single sensor reading
     struct SensorReading {
         double value;
+        int32_t confidence;
         bool is_valid;
         bool is_open_space;
         
-        SensorReading(double raw_reading) {
-            // Convert from mm to inches and validate
+        SensorReading(double raw_reading, int32_t raw_confidence) {
+            // Convert from mm to inches
             value = std::isfinite(raw_reading) ? raw_reading / 25.4 : -1;
-            is_valid = (value > 0 && value < 42);
-            is_open_space = (value >= 42 && std::isfinite(value));
+            confidence = raw_confidence;
+            
+            // Use confidence-based validation instead of hard range limits
+            is_valid = (confidence > 0 && value > 0 && std::isfinite(value));
+            is_open_space = false; // Will be determined by expected vs actual distance comparison
         }
     };
     
     // Update step: weight particles based on sensor measurements
     void update() {
-        // Get and process sensor readings
+        // Get and process sensor readings with confidence values
         std::vector<SensorReading> sensors = {
-            SensorReading(front_dist.get()),
-            SensorReading(back_dist.get()),
-            SensorReading(left_dist.get()),
-            SensorReading(right_dist.get())
+            SensorReading(front_dist.get(), front_dist.get_confidence()),
+            SensorReading(back_dist.get(), back_dist.get_confidence()),
+            SensorReading(left_dist.get(), left_dist.get_confidence()),
+            SensorReading(right_dist.get(), right_dist.get_confidence())
         };
         
-        // Count sensors with usable information (either valid close readings or open space readings)
+        // Count sensors with usable information (confidence > 0)
         int usable_sensor_count = 0;
         for (const auto& sensor : sensors) {
-            if (sensor.is_valid || sensor.is_open_space) usable_sensor_count++;
+            if (sensor.is_valid) usable_sensor_count++;
         }
         
         // Skip update only if NO sensors provide usable information
@@ -303,46 +309,54 @@ public:
         
         double total_weight = 0.0;
         
-        // Update particle weights based on weighted sum sensor likelihood
+        // Update particle weights based on confidence-weighted sensor log-likelihood
         for (auto& particle : particles) {
-            double weight_sum = 0.0; // Start with zero for addition
+            double log_weight_sum = 0.0; // Start with zero for addition in log space
             double total_sensor_weight = 0.0; // Track total weight for normalization
             
-            // Calculate likelihood for each sensor (additive approach)
+            // Calculate log-likelihood for each sensor (confidence-weighted additive approach)
             for (int i = 0; i < 4; i++) {
-                // Use configurable sensor weights (can adjust for sensor reliability)
-                double sensor_weight = (i < SENSOR_WEIGHTS.size()) ? SENSOR_WEIGHTS[i] : 1.0;
-                
                 if (sensors[i].is_valid) {
-                    // Use actual sensor reading for valid close-range sensors
+                    // Base sensor weight from configuration
+                    double base_sensor_weight = (i < SENSOR_WEIGHTS.size()) ? SENSOR_WEIGHTS[i] : 1.0;
+                    
+                    // Adjust weight based on sensor confidence (0-63 range)
+                    // Normalize confidence to [0, 1] and use as multiplier
+                    double confidence_factor = std::min(sensors[i].confidence, 63) / 63.0;
+                    double effective_sensor_weight = base_sensor_weight * confidence_factor;
+                    
+                    // Calculate expected distance and error
                     double expected = getExpectedDistance(particle, i);
                     double error = sensors[i].value - expected;
                     
-                    // Gaussian likelihood function using base sensor noise
-                    double likelihood = exp(-0.5 * (error * error) / (BASE_SENSOR_NOISE_STD * BASE_SENSOR_NOISE_STD));
-                    weight_sum += sensor_weight * likelihood; // Additive weighting - robust to single bad sensor
-                    total_sensor_weight += sensor_weight;
-                } else if (sensors[i].is_open_space) {
-                    // High readings indicate open space - give high likelihood if particle expects open space
-                    double expected = getExpectedDistance(particle, i);
+                    // Adjust noise model based on confidence
+                    // Lower confidence = higher effective noise
+                    double confidence_adjusted_noise = BASE_SENSOR_NOISE_STD / (0.1 + 0.9 * confidence_factor);
                     
-                    if (expected >= 42.0) {
-                        // Particle expects open space and sensor sees open space - high likelihood
-                        weight_sum += sensor_weight * 0.95; // High confidence match
-                    } else {
-                        // Particle expects obstacle but sensor sees open space - low likelihood
-                        weight_sum += sensor_weight * 0.1; // Disagreement penalty (but not fatal)
+                    // Gaussian log-likelihood function with confidence-adjusted noise
+                    double log_likelihood = -0.5 * (error * error) / (confidence_adjusted_noise * confidence_adjusted_noise);
+                    
+                    // Weight the log-likelihood by effective sensor weight
+                    log_weight_sum += effective_sensor_weight * log_likelihood;
+                    total_sensor_weight += effective_sensor_weight;
+                    
+                    // Handle open space detection based on expected vs actual distance
+                    // If sensor reads much farther than expected, it might be open space
+                    if (sensors[i].value > expected + 12.0 && sensors[i].value > 24.0) {
+                        // Sensor sees farther than expected - potential open space
+                        // Give modest bonus for detecting open space (less than perfect match)
+                        double open_space_bonus = effective_sensor_weight * log(0.7); // ≈ -0.357
+                        log_weight_sum += open_space_bonus;
+                        total_sensor_weight += effective_sensor_weight * 0.5; // Partial weight for open space
                     }
-                    total_sensor_weight += sensor_weight;
-                } else {
-                    // Invalid sensors (≤0 or non-finite) - skip this sensor entirely
-                    // Don't add to weight_sum or total_sensor_weight
                 }
+                // Skip invalid sensors (confidence = 0 or non-finite readings)
             }
             
-            // Normalize by total sensor weight to get average likelihood
+            // Normalize by total sensor weight and convert back to linear space
             if (total_sensor_weight > 0.0) {
-                particle.weight = weight_sum / total_sensor_weight;
+                double avg_log_likelihood = log_weight_sum / total_sensor_weight;
+                particle.weight = exp(avg_log_likelihood); // Convert back to linear space [0, 1]
             } else {
                 // No valid sensors - set neutral weight
                 particle.weight = 0.5; // Neutral likelihood when no sensor information
