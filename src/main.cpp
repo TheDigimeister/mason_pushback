@@ -1,11 +1,4 @@
 #include "main.h"
-#include "drive.hpp"
-#include "lemlib/api.hpp"
-#include "lemlib/chassis/chassis.hpp"
-#include "pros/adi.hpp"
-#include "pros/distance.hpp"
-#include "pros/rtos.hpp"
-#include "robot.hpp"
 #include <cstdio>
 
 pros::Controller master(pros::E_CONTROLLER_MASTER);
@@ -63,30 +56,21 @@ void initialize() {
 
 	chassis.setPose(-48,-48,-90);
 	// chassis.setPose(-36, -36, 180);
-	// initializeMCL();
+	initializeMCL();
 
 	// pros::Task mcl_resets([=](){
 	// 	pros::delay(10000);
 	// 	resetMCL();
 	// });
 
-	// pros::Task PID_pot_update([&](){
-	// 	while(true) {
-	// 		p_value = P_pot.get_value() * (100.0/4095.0);
-	// 		d_value = D_pot.get_value() * (100.0/4095.0);
-	// 		// chassis.angularPID.kP = p_value;
-	// 		chassis.angularPID.kP = p_value;
-	// 		chassis.angularPID.kD = d_value;
-	// 		pros::delay(50);
-	// 	}
-	// });
 
 	pros::Task print_coordinates([&](){
 		while (true) {
 			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
 			if (true) {
 				std::cout << std::endl;
-				std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+				std::printf("Estimated Odom pose: x=%.3f, y=%.3f, theta=%.3f\n", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+				std::printf("Estimated MCL pose: x=%.3f, y=%.3f, theta=%.3f, uncertainty=%.3f\n", getMCLPose().x, getMCLPose().y, getMCLPose().theta, getMCLUncertainty());
 				pros::delay(100);
 			}
 		}
