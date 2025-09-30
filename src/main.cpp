@@ -19,7 +19,7 @@ bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-int auton_num = 10;
+int auton_num = 5;
 
 /**
  * A callback function for LLEMU's center button.

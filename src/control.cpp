@@ -32,7 +32,7 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 50;  // Reduced from 350 to prevent memory overflow
+const int NUM_PARTICLES = 350;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
 const double BASE_SENSOR_NOISE_STD = 0.5; // Base standard deviation for sensor noise
@@ -368,11 +368,10 @@ public:
                       last_pose(chassis.getPose()) {
         particles.resize(NUM_PARTICLES);
         
-        // TEMPORARILY DISABLE CACHE TO PREVENT MEMORY OVERFLOW
         // Pre-compute aggressive distance cache during initialization
         // This runs once at startup (~1-2 seconds), then provides O(1) interpolated lookups
-        printf("MCL: Cache disabled for memory safety - using direct raycast\n");
-        // distance_cache.precompute();
+        printf("MCL: Initializing balanced caching system...\n");
+        distance_cache.precompute();
         
         initializeParticles();
     }
@@ -473,14 +472,14 @@ public:
     // - At 90°: robot faces East (X+), front sensor ray = (1,0), right sensor ray = (0,-1)
     // 
     // Obstacles detected: Field perimeter walls only (all other field geometry removed)
-    // MEMORY-SAFE: Using direct raycast calculation instead of cache to prevent overflow
+    // Cached distance calculation using aggressive pre-computed cache (256 KB)
+    // Provides maximum accuracy with 4.5" spatial resolution and 45° angular resolution
     double getExpectedDistance(const Particle& particle, int sensor_id) {
-        // Use direct raycast calculation to prevent memory overflow
-        return getExpectedDistanceExact(particle, sensor_id);
+        // Convert radians to degrees for cache lookup
+        double heading_degrees = particle.theta * 180.0 / M_PI;
         
-        // Original cache code (disabled for memory safety):
-        // double heading_degrees = particle.theta * 180.0 / M_PI;
-        // return distance_cache.lookup(particle.x, particle.y, heading_degrees, sensor_id);
+        // Use aggressive cache with bilinear spatial + angular interpolation
+        return distance_cache.lookup(particle.x, particle.y, heading_degrees, sensor_id);
     }
     
     // Original raycast implementation (kept for debugging/validation)
