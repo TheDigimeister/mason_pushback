@@ -1,12 +1,4 @@
 #include "main.h"
-#include "drive.hpp"
-#include "lemlib/api.hpp"
-#include "lemlib/chassis/chassis.hpp"
-#include "pros/adi.hpp"
-#include "pros/distance.hpp"
-#include "pros/llemu.hpp"
-#include "pros/rtos.hpp"
-#include "robot.hpp"
 #include <cstdio>
 
 pros::Controller master(pros::E_CONTROLLER_MASTER);
@@ -27,7 +19,13 @@ bool descore_state = false;
 bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
-int auton_num = 5;
+int auton_num = 50;
+
+const float FRONT_DIST_OFFSET = 6.25;
+const float LEFT_DIST_OFFSET = 5.75;
+const float RIGHT_DIST_OFFSET = 5.5;
+
+const float MM_TO_IN = 0.0393701;
 
 /**
  * A callback function for LLEMU's center button.
@@ -74,37 +72,19 @@ void initialize() {
 			}
 		}
 	});
-	// chassis.setPose(-36, -36, 180);
-	// initializeMCL();
 
-	// pros::Task mcl_resets([=](){
-	// 	pros::delay(10000);
-	// 	resetMCL();
-	// });
-
-	// pros::Task PID_pot_update([&](){
-	// 	while(true) {
-	// 		p_value = P_pot.get_value() * (100.0/4095.0);
-	// 		d_value = D_pot.get_value() * (100.0/4095.0);
-	// 		// chassis.angularPID.kP = p_value;
-	// 		chassis.angularPID.kP = p_value;
-	// 		chassis.angularPID.kD = d_value;
-	// 		pros::delay(50);
+	// pros::Task print_coordinates([&](){
+	// 	while (true) {
+	// 		// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
+	// 		if (true) {
+	// 			std::cout << std::endl;
+	// 			std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+	// 			pros::lcd::print(0, "X:%.2f, Y:%.2f, Theta:%.2f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+	// 			master.print(0, 0, "X:%.2fY:%.2fT:%.2f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+	// 			pros::delay(100);
+	// 		}
 	// 	}
 	// });
-
-	pros::Task print_coordinates([&](){
-		while (true) {
-			// std::cout << "Estimated pose: x=" << chassis.getPose().x << ", y=" << chassis.getPose().y << ", theta=" << chassis.getPose().theta;
-			if (true) {
-				std::cout << std::endl;
-				std::printf("Estimated pose: x=%.3f, y=%.3f, theta=%.3f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
-				pros::lcd::print(0, "X:%.2f, Y:%.2f, Theta:%.2f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
-				master.print(0, 0, "X:%.2fY:%.2fT:%.2f", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
-				pros::delay(100);
-			}
-		}
-	});
 }
 
 /**
@@ -637,6 +617,241 @@ void autonomous() {
 
 		// Prep for parking
 		chassis.moveToPoint(-48, 44, 2000, {.forwards = true, .maxSpeed = 50});
+		matchload.set_value(false);
+		chassis.turnToHeading(-155, 2000, {}, false);
+		odom.set_value(true);
+		// chassis.moveToPose(-63, 16, 180, 2000, {.maxSpeed=50},false);
+		left_mg.move(100);
+		right_mg.move(100);
+		pros::delay(1300);
+		// matchload.set_value(true);
+		// pros::delay(1000);
+		// left_mg.move(127);
+		// right_mg.move(127);
+		// pros::delay(5000);
+		left_mg.move(0);
+		right_mg.move(0);
+		left_mg.brake();
+		right_mg.brake();
+
+
+		
+		// // Score second long goal
+		// chassis.moveToPoint(26.4, -47.345, 2000, {.forwards = false, .maxSpeed = 50});
+		// upper.move(127);
+		// pros::delay(2000);
+		// upper.move(0);
+
+
+
+	}
+	else if (auton_num == 50) {
+
+		// Skills
+		odom.set_value(false);
+		chassis.setPose(-72 + RIGHT_DIST_OFFSET + right_dist.get_distance() * MM_TO_IN, -72 + FRONT_DIST_OFFSET + front_dist.get_distance() * MM_TO_IN,180);
+
+		// Path
+
+		lower.move(127);
+		level.set_value(false);
+		matchload.set_value(true);
+
+		// Path
+
+		// Get matchloader
+		chassis.moveToPoint(-48, -47, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.turnToHeading(-90, 2000);
+		chassis.moveToPoint(-60, -47, 2000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
+		pros::delay(3000);
+		
+		// Score long goal
+		chassis.moveToPoint(-28, -47, 2000, {.forwards = false, .maxSpeed = 50});
+		pros::Task align_score1{[=]{
+			while(back_dist.get_distance() > 85) { pros::delay(50);}
+			upper.move(127);
+		}};
+		chassis.turnToHeading(-90, 2000, {}, false);
+		pros::delay(3000);
+		chassis.setPose(chassis.getPose().x, -72 + LEFT_DIST_OFFSET + left_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		upper.move(0);
+		matchload.set_value(false);
+		
+		// Get first trio
+		chassis.moveToPoint(-45, -47, 2000);
+		chassis.turnToPoint(-22, -22, 2000);
+		chassis.moveToPose(-22, -22, 45, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.waitUntil(10);
+		// matchload.set_value(true);
+		pros::delay(500);
+		
+		// // Get second trio
+		// chassis.moveToPoint(-4.807, -43.737, 2000, {.forwards = true, .maxSpeed = 50});
+		// chassis.waitUntil(10);
+		// matchload.set_value(false);
+		// chassis.waitUntil(20);
+		// matchload.set_value(true);
+		// pros::delay(1000);
+		
+		// // Get third trio
+		// chassis.moveToPoint(-14.608, -32.129, 2000, {.forwards = true, .maxSpeed = 127});
+		// chassis.turnToHeading(135, 2000);
+		// chassis.waitUntil(10);
+		matchload.set_value(false);
+
+		chassis.turnToHeading(90, 2000);
+		chassis.moveToPoint(41.40, -22, 5000, {.forwards = true, .maxSpeed = 127}, false);
+		chassis.turnToHeading(90, 2000, {}, false);
+		pros::delay(1000);
+		chassis.setPose(72 - FRONT_DIST_OFFSET - front_dist.get_distance() * MM_TO_IN, -72 + RIGHT_DIST_OFFSET + right_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		chassis.turnToHeading(180, 2000);
+		chassis.moveToPoint(47, -47, 5000, {.forwards = true, .maxSpeed = 100});
+
+	
+		// Score second long goal
+		chassis.turnToHeading(90, 2000);
+		chassis.moveToPoint(28, -48, 2000, {.forwards = false, .maxSpeed = 65});
+		pros::Task align_score2{[=]{
+			while(back_dist.get_distance() > 85) { pros::delay(50);}
+			upper.move(127);
+		}};
+		chassis.turnToHeading(90, 2000, {}, false);
+		pros::delay(3000);
+		chassis.setPose(chassis.getPose().x, -72 + RIGHT_DIST_OFFSET + right_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		upper.move(0);
+		
+		// Get second matchloader
+		chassis.turnToHeading(90, 2000);
+		matchload.set_value(true);
+		chassis.moveToPoint(60, -47, 2000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
+		pros::delay(3000);
+
+		// Go to matchloader 3
+		chassis.moveToPoint(43, -48, 2000, {.forwards = false});
+		chassis.turnToHeading(0, 2000);
+		chassis.moveToPoint(43, 47, 2000, {.forwards = true});
+
+		// Score long goal 3
+		chassis.turnToHeading(90, 2000);
+		chassis.moveToPoint(28, 47, 2000, {.forwards = false, .maxSpeed = 50});
+		pros::Task align_score3{[=]{
+			while(back_dist.get_distance() > 85) { pros::delay(50);}
+			upper.move(127);
+		}};
+		chassis.turnToHeading(90, 2000, {}, false);
+		pros::delay(3000);
+		chassis.setPose(chassis.getPose().x, 72 - LEFT_DIST_OFFSET - left_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		upper.move(0);
+
+
+
+		// Get matchloader
+		chassis.moveToPoint(60, 47, 2000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
+		pros::delay(3000);
+
+
+		// Score long goal 3
+		chassis.moveToPoint(28, 47, 2000, {.forwards = false, .maxSpeed = 50});
+		pros::Task align_score4{[=]{
+			while(back_dist.get_distance() > 85) { pros::delay(50);}
+			upper.move(127);
+		}};
+		chassis.turnToHeading(90, 2000, {}, false);
+		pros::delay(3000);
+		chassis.setPose(chassis.getPose().x, 72 - LEFT_DIST_OFFSET - left_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		upper.move(0);
+
+
+
+		// Get 4th trio
+		chassis.moveToPoint(47, 47, 2000, {.maxSpeed=127});
+		matchload.set_value(false);
+		chassis.turnToHeading( 180, 2000);
+		// chassis.moveToPoint(35, 35, 2000);
+		chassis.moveToPose(22, 22, -135, 2000, {.maxSpeed = 127});
+		// chassis.waitUntil(15);
+		// matchload.set_value(true);
+		pros::delay(1000);
+
+		// Get 5th trio
+		chassis.turnToPoint(-25, 22, 2000);
+		chassis.moveToPoint(-25, 22, 2000, {.forwards = true, .maxSpeed = 127});
+
+		chassis.turnToHeading(-90, 1000, {}, false);
+		pros::delay(1000);
+		chassis.setPose(-72 + FRONT_DIST_OFFSET + front_dist.get_distance() * MM_TO_IN, chassis.getPose().y, chassis.getPose().theta); 
+
+		// chassis.waitUntil(10);
+		// matchload.set_value(false);
+		// chassis.waitUntil(20);
+		// matchload.set_value(true);
+
+		// Score middle goal
+		chassis.turnToHeading(-45, 2000);
+		chassis.moveToPoint(-12, 12, 2000, {.forwards = false, .maxSpeed = 50}, false);
+		chassis.turnToHeading(-45, 2000);
+		level.set_value(true);
+		pros::delay(200);
+		upper.move(127);
+		pros::delay(3000);
+		upper.move(0);
+
+
+		// Go to matchloader 4
+		chassis.moveToPoint(-47, 47, 2000, {.forwards = true, .maxSpeed = 127});
+		level.set_value(false);
+		chassis.turnToHeading(-90, 2000);
+		matchload.set_value(true);
+
+		// Get matchloader 4
+		chassis.moveToPoint(-60, 47, 2000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
+		pros::delay(3000);
+
+		// Score long goal 4
+		chassis.moveToPoint(-28, 47, 2000, {.forwards = false, .maxSpeed = 50});
+		pros::Task align_score5{[=]{
+			while(back_dist.get_distance() > 85) { pros::delay(50);}
+			upper.move(127);
+		}};
+		chassis.turnToHeading(-90, 2000, {}, false);
+		pros::delay(3000);
+		chassis.setPose(chassis.getPose().x, 72 - RIGHT_DIST_OFFSET - right_dist.get_distance() * MM_TO_IN, chassis.getPose().theta); 
+		upper.move(0);
+
+		// Prep for parking
+		chassis.moveToPoint(-47, 47, 2000, {.forwards = true, .maxSpeed = 50});
 		matchload.set_value(false);
 		chassis.turnToHeading(-155, 2000, {}, false);
 		odom.set_value(true);

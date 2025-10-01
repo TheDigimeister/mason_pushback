@@ -1,8 +1,6 @@
-#include "drive.hpp"
+#include "main.h"
 #include "lemlib/chassis/chassis.hpp"
 #include "lemlib/chassis/trackingWheel.hpp"
-#include "main.h"
-
 
 pros::ADIAnalogIn P_pot('E');
 pros::ADIAnalogIn D_pot('F');
@@ -47,7 +45,7 @@ lemlib::ControllerSettings lateral_controller(6, // proportional gain (kP)
 // PERFECT angular PID controller
 lemlib::ControllerSettings angular_controller(5.5, // proportional gain (kP)
                                               0.04, // integral gain (kI) // 0.04
-                                              57, // derivative gain (kD)
+                                              60, // derivative gain (kD)
                                               21, // anti windup
                                               1, // small error range, in degrees
                                               150, // small error range timeout, in milliseconds
