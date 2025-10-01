@@ -30,7 +30,7 @@
 // - Right sensor: points right (X+ direction when robot heading = 0°)
 
 // MCL Configuration
-const int NUM_PARTICLES = 1000;
+const int NUM_PARTICLES = 50;
 const double FIELD_WIDTH = 144.0;  // VRC field width in inches
 const double FIELD_LENGTH = 144.0; // VRC field length in inches
 const double BASE_SENSOR_NOISE_STD = 0.5; // Base standard deviation for sensor noise
