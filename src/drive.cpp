@@ -11,17 +11,17 @@ pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards p
 lemlib::Drivetrain drivetrain(&left_mg, // left motor group
                               &right_mg, // right motor group
                               11.5, // 10 inch track width
-                              lemlib::Omniwheel::NEW_325, // using new 4" omnis
+                              lemlib::Omniwheel::NEW_325, // using new 4" omnis 96.0/94.136
                               450, // drivetrain rpm is 360
-                              3 // horizontal drift is 2 (for now)
+                              5 // horizontal drift is 2 (for now)
 );
 
 pros::Rotation vert_odom(-12);
 pros::Rotation hor_odom(20);
 pros::Imu inertial(11);
 
-lemlib::TrackingWheel vertical_tracking_wheel(&vert_odom, lemlib::Omniwheel::NEW_275, 0.125);
-lemlib::TrackingWheel hor_tracking_wheel(&hor_odom, lemlib::Omniwheel::NEW_2 * (120.0/125.0), -3.75); // lemlib::Omniwheel::NEW_2 * (117.25/126.25)
+lemlib::TrackingWheel vertical_tracking_wheel(&vert_odom, lemlib::Omniwheel::NEW_275, 0.075);
+lemlib::TrackingWheel hor_tracking_wheel(&hor_odom, lemlib::Omniwheel::NEW_2 * 96/101.41, -4.201); // lemlib::Omniwheel::NEW_2 * (117.25/126.25)
 
 lemlib::OdomSensors sensors(&vertical_tracking_wheel, // vertical tracking wheel 1, set to null
                             nullptr, // vertical tracking wheel 2, set to nullptr as we are using IMEs
@@ -39,7 +39,7 @@ lemlib::ControllerSettings lateral_controller(6, // proportional gain (kP)
                                               300, // small error range timeout, in milliseconds
                                               3, // large error range, in inches
                                               700, // large error range timeout, in milliseconds
-                                              0 // maximum acceleration (slew)
+                                              100 // maximum acceleration (slew)
 );
 
 // PERFECT angular PID controller
@@ -48,9 +48,9 @@ lemlib::ControllerSettings angular_controller(5.5, // proportional gain (kP)
                                               60, // derivative gain (kD)
                                               21, // anti windup
                                               1, // small error range, in degrees
-                                              150, // small error range timeout, in milliseconds
+                                              300, // small error range timeout, in milliseconds
                                               3, // large error range, in degrees
-                                              500, // large error range timeout, in milliseconds
+                                              700, // large error range timeout, in milliseconds
                                               0 // maximum acceleration (slew)
 );
 

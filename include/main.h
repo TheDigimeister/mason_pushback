@@ -44,7 +44,7 @@
 // #include "lemlib/chassis/chassis.hpp"
 #include "drive.hpp"
 #include "robot.hpp"
-#include "control.hpp"
+#include "utils.hpp"
 
 /**
  * If you find doing pros::Motor() to be tedious and you'd prefer just to do
