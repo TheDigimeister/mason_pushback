@@ -659,15 +659,15 @@ void autonomous() {
 		// Get matchloader
 		chassis.moveToPoint(-48, -48, 2000, {.forwards = true, .maxSpeed = 127, .minSpeed = 5, .earlyExitRange = 1});
 		chassis.turnToHeading(-90, 2000, {.minSpeed = 5, .earlyExitRange = 3});
-		chassis.moveToPoint(-61, -47.5, 2000, {.forwards = true, .maxSpeed = 127}, false);
-		// left_mg.move(-50);
-		// right_mg.move(-50);
-		// pros::delay(250);
-		// left_mg.move(50);
-		// right_mg.move(50);
-		// pros::delay(500);
-		// left_mg.move(0);
-		// right_mg.move(0);
+		chassis.moveToPoint(-62, -47.5, 1000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
 		pros::delay(1500);
 		
 		// Score long goal
@@ -727,15 +727,15 @@ void autonomous() {
 		// Get second matchloader
 		chassis.turnToHeading(90, 2000);
 		matchload.set_value(true);
-		chassis.moveToPoint(61, -47, 2000, {.forwards = true, .maxSpeed = 127}, false);
-		// left_mg.move(-50);
-		// right_mg.move(-50);
-		// pros::delay(250);
-		// left_mg.move(50);
-		// right_mg.move(50);
-		// pros::delay(500);
-		// left_mg.move(0);
-		// right_mg.move(0);
+		chassis.moveToPoint(62, -47, 1000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
 		pros::delay(1500);
 
 		// Go to matchloader 3
@@ -758,15 +758,15 @@ void autonomous() {
 
 
 		// Get matchloader
-		chassis.moveToPoint(61, 49, 2000, {.forwards = true, .maxSpeed = 127}, false);
-		// left_mg.move(-50);
-		// right_mg.move(-50);
-		// pros::delay(250);
-		// left_mg.move(50);
-		// right_mg.move(50);
-		// pros::delay(500);
-		// left_mg.move(0);
-		// right_mg.move(0);
+		chassis.moveToPoint(62, 49, 1000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
 		pros::delay(1500);
 
 
@@ -817,7 +817,7 @@ void autonomous() {
 
 
 		// Go to matchloader 4
-		chassis.moveToPoint(-47, 47, 2000, {.forwards = true, .maxSpeed = 127});
+		chassis.moveToPoint(-47, 46.5, 2000, {.forwards = true, .maxSpeed = 127});
 		level.set_value(false);
 		chassis.turnToHeading(-90, 2000, {}, false);
 		chassis.setPose(chassis.getPose().x, 72 - RIGHT_DIST_OFFSET - right_dist.get() * MM_TO_IN, chassis.getPose().theta); 
@@ -825,15 +825,15 @@ void autonomous() {
 		matchload.set_value(true);
 
 		// Get matchloader 4
-		chassis.moveToPoint(-61, 47.5, 2000, {.forwards = true, .maxSpeed = 127}, false);
-		// left_mg.move(-50);
-		// right_mg.move(-50);
-		// pros::delay(250);
-		// left_mg.move(50);
-		// right_mg.move(50);
-		// pros::delay(500);
-		// left_mg.move(0);
-		// right_mg.move(0);
+		chassis.moveToPoint(-62, 47.5, 1000, {.forwards = true, .maxSpeed = 127}, false);
+		left_mg.move(-50);
+		right_mg.move(-50);
+		pros::delay(250);
+		left_mg.move(50);
+		right_mg.move(50);
+		pros::delay(500);
+		left_mg.move(0);
+		right_mg.move(0);
 		pros::delay(1500);
 
 		// Score long goal 4
@@ -850,7 +850,7 @@ void autonomous() {
 		// Prep for parking
 		chassis.moveToPoint(-47, 47, 2000, {.forwards = true, .maxSpeed = 50});
 		matchload.set_value(false);
-		chassis.turnToHeading(-145, 2000, {}, false);
+		chassis.turnToHeading(-155, 2000, {}, false);
 		odom.set_value(true);
 		// chassis.moveToPose(-63, 16, 180, 2000, {.maxSpeed=50},false);
 		left_mg.move(90);
