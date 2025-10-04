@@ -1,9 +1,6 @@
 #include "main.h"
-#include "lemlib/chassis/chassis.hpp"
-#include "lemlib/chassis/trackingWheel.hpp"
 
-pros::ADIAnalogIn P_pot('E');
-pros::ADIAnalogIn D_pot('F');
+pros::Controller master(pros::E_CONTROLLER_MASTER);
 
 pros::MotorGroup left_mg({1, -5, -2});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
 pros::MotorGroup right_mg({-3, 6, 4});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
@@ -20,7 +17,7 @@ pros::Rotation vert_odom(-12);
 pros::Rotation hor_odom(20);
 pros::Imu inertial(11);
 
-lemlib::TrackingWheel vertical_tracking_wheel(&vert_odom, lemlib::Omniwheel::NEW_275, 0.075);
+lemlib::TrackingWheel vertical_tracking_wheel(&vert_odom, lemlib::Omniwheel::NEW_275, 0.125);
 lemlib::TrackingWheel hor_tracking_wheel(&hor_odom, lemlib::Omniwheel::NEW_2 * 96/101.41, -4.201); // lemlib::Omniwheel::NEW_2 * (117.25/126.25)
 
 lemlib::OdomSensors sensors(&vertical_tracking_wheel, // vertical tracking wheel 1, set to null
@@ -32,7 +29,7 @@ lemlib::OdomSensors sensors(&vertical_tracking_wheel, // vertical tracking wheel
 
 // PERFECT lateral PID controller
 lemlib::ControllerSettings lateral_controller(6, // proportional gain (kP)
-                                              0.5, // integral gain (kI) // 2
+                                              0.0, // integral gain (kI) // 0.5
                                               45, // derivative gain (kD)
                                               2, // anti windup
                                               1, // small error range, in inches
@@ -43,9 +40,9 @@ lemlib::ControllerSettings lateral_controller(6, // proportional gain (kP)
 );
 
 // PERFECT angular PID controller
-lemlib::ControllerSettings angular_controller(5.5, // proportional gain (kP)
-                                              0.04, // integral gain (kI) // 0.04
-                                              60, // derivative gain (kD)
+lemlib::ControllerSettings angular_controller(5, // proportional gain (kP)
+                                              0.0, // integral gain (kI) // 0.04
+                                              64, // derivative gain (kD)
                                               21, // anti windup
                                               1, // small error range, in degrees
                                               300, // small error range timeout, in milliseconds
