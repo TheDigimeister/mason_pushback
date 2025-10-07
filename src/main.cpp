@@ -1,6 +1,7 @@
 #include "main.h"
 #include "autons.hpp"
 #include "lemlib/api.hpp"
+#include "robot.hpp"
 #include "utils.hpp"
 
 
@@ -36,7 +37,7 @@ void initialize() {
 
 	chassis.calibrate();
 
-    chassis.setPose(positionFromRaycast(right_dist.get() * MM_TO_IN, RIGHT_DIST_OFFSET, WEST), positionFromRaycast(front_dist.get() * MM_TO_IN, FRONT_DIST_OFFSET, SOUTH),180);
+    chassis.setPose(positionFromRaycast(back_dist.get() * MM_TO_IN, BACK_DIST_OFFSET, WEST), positionFromRaycast(right_dist.get() * MM_TO_IN, RIGHT_DIST_OFFSET, SOUTH),90);
 	// chassis.setPose(0,0,0);
 
 	left_mg.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
@@ -49,10 +50,12 @@ void initialize() {
 			float frontReading = front_dist.get() * MM_TO_IN;
 			float leftReading = left_dist.get() * MM_TO_IN;
 			float rightReading = right_dist.get() * MM_TO_IN;
+			float backReading = back_dist.get() * MM_TO_IN;
 
 			float frontConfidence = front_dist.get_confidence();
 			float leftConfidence = left_dist.get_confidence();
 			float rightConfidence = right_dist.get_confidence();
+			float backConfidence = back_dist.get_confidence();
 
 			lemlib::Pose currentPose = chassis.getPose();
 					
@@ -65,6 +68,7 @@ void initialize() {
 			float estimatedRightPos = 0;
 			float estimatedFrontPos = 0;
 			float estimatedLeftPos = 0;
+			float estimatedBackPos = 0;
 
 			WALL wallDirection = NORTH;
 			bool parallel = false;
@@ -98,29 +102,33 @@ void initialize() {
 						estimatedRightPos = positionFromRaycast(rightReading, RIGHT_DIST_OFFSET, EAST);
 						estimatedFrontPos = positionFromRaycast(frontReading, FRONT_DIST_OFFSET, NORTH);
 						estimatedLeftPos = positionFromRaycast(leftReading, LEFT_DIST_OFFSET, WEST);
+						estimatedBackPos = positionFromRaycast(backReading, BACK_DIST_OFFSET, SOUTH);
 						estimated_x = (leftConfidence * estimatedLeftPos + rightConfidence * estimatedRightPos) / (leftConfidence + rightConfidence);
-						estimated_y = estimatedFrontPos;
+						estimated_y = (frontConfidence * estimatedFrontPos + backConfidence * estimatedBackPos) / (frontConfidence + backConfidence);
 						break;
 					case SOUTH:
 						estimatedRightPos = positionFromRaycast(rightReading, RIGHT_DIST_OFFSET, WEST);
 						estimatedFrontPos = positionFromRaycast(frontReading, FRONT_DIST_OFFSET, SOUTH);
 						estimatedLeftPos = positionFromRaycast(leftReading, LEFT_DIST_OFFSET, EAST);
+						estimatedBackPos = positionFromRaycast(backReading, BACK_DIST_OFFSET, NORTH);
 						estimated_x = (leftConfidence * estimatedLeftPos + rightConfidence * estimatedRightPos) / (leftConfidence + rightConfidence);
-						estimated_y = estimatedFrontPos;
+						estimated_y = (frontConfidence * estimatedFrontPos + backConfidence * estimatedBackPos) / (frontConfidence + backConfidence);
 						break;
 					case EAST:
 						estimatedRightPos = positionFromRaycast(rightReading, RIGHT_DIST_OFFSET, SOUTH);
 						estimatedFrontPos = positionFromRaycast(frontReading, FRONT_DIST_OFFSET, EAST);
 						estimatedLeftPos = positionFromRaycast(leftReading, LEFT_DIST_OFFSET, NORTH);
+						estimatedBackPos = positionFromRaycast(backReading, BACK_DIST_OFFSET, WEST);
 						estimated_y = (leftConfidence * estimatedLeftPos + rightConfidence * estimatedRightPos) / (leftConfidence + rightConfidence);
-						estimated_x = estimatedFrontPos;
+						estimated_x = (frontConfidence * estimatedFrontPos + backConfidence * estimatedBackPos) / (frontConfidence + backConfidence);
 						break;
 					case WEST:
 						estimatedRightPos = positionFromRaycast(rightReading, RIGHT_DIST_OFFSET, NORTH);
 						estimatedFrontPos = positionFromRaycast(frontReading, FRONT_DIST_OFFSET, WEST);
 						estimatedLeftPos = positionFromRaycast(leftReading, LEFT_DIST_OFFSET, SOUTH);
+						estimatedBackPos = positionFromRaycast(backReading, BACK_DIST_OFFSET, EAST);
 						estimated_y = (leftConfidence * estimatedLeftPos + rightConfidence * estimatedRightPos) / (leftConfidence + rightConfidence);
-						estimated_x = estimatedFrontPos;
+						estimated_x = (frontConfidence * estimatedFrontPos + backConfidence * estimatedBackPos) / (frontConfidence + backConfidence);
 						break;
 					default:
 						std::printf("Invalid wall direction");
@@ -147,7 +155,7 @@ void initialize() {
 				}
 			}
 
-		pros::delay(200);
+		pros::delay(500);
 	}
 	});
 
@@ -226,6 +234,9 @@ void autonomous() {
 			break;
 		case 6:
 			skills2();
+			break;
+		case 7:
+			middleGoal31();
 			break;
 	}
 

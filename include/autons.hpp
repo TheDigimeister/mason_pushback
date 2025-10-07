@@ -13,3 +13,4 @@ extern void soloAWPLowGoal();
 extern void soloAWPMiddleGoal();
 extern void skills();
 extern void skills2();
+extern void middleGoal31();

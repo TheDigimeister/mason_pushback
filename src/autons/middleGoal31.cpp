@@ -2,7 +2,7 @@
 #include "robot.hpp"
 #include "utils.hpp"
 
-void nineBallLowGoal() {
+void middleGoal31() {
     odom.set_value(false);
     // chassis.setPose(-46.847,-14.278,90);
     chassis.setPose(positionFromRaycast(back_dist.get() * MM_TO_IN, BACK_DIST_OFFSET, WEST), positionFromRaycast(right_dist.get() * MM_TO_IN, RIGHT_DIST_OFFSET, SOUTH),90);
