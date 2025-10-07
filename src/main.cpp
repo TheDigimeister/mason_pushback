@@ -10,7 +10,7 @@ bool level_state = false;
 bool odom_state = false;
 bool matchload_state = false;
 
-const int AUTON_NUM = NINEBALLLOWGOAL;
+const int AUTON_NUM = MIDDLEGOAL35;
 const float RAYCAST_RESET_ANGLE_RANGE = 10.0; // ± degrees from 0°/360° or 90°/270° 
 const float RAYCAST_RESET_MIN_ERROR = 0.3; // minimum error required before applying correction
 const float RAYCAST_RESET_MAX_ERROR = 3.0; // maximum error to restrict correction (e.g. matchloader depth)
@@ -237,6 +237,9 @@ void autonomous() {
 			break;
 		case 7:
 			middleGoal31();
+			break;
+		case 8:
+			middleGoal35();
 			break;
 	}
 
